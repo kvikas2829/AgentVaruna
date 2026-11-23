@@ -1,0 +1,13 @@
+services:
+  varuna:
+    build: .
+    ports: ["8000:8000"]
+    volumes: ["varuna-data:/data"]
+    environment:
+      VARUNA_ADMIN_USER: ${VARUNA_ADMIN_USER:-admin}
+      VARUNA_ADMIN_PASSWORD: ${VARUNA_ADMIN_PASSWORD:-varuna}
+      VARUNA_SECRET: ${VARUNA_SECRET:-change-me}
+      VARUNA_SEED: ${VARUNA_SEED:-1}            # 0 = start empty, no sample history
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}  # optional: enables the Claude judge and compiler
+volumes:
+  varuna-data:
