@@ -57,6 +57,20 @@ def _personas(key: str) -> list[dict]:
             for h in company.PERSONAS.get(key, [])]
 
 
+_warming = {"at": 0.0}
+
+
+@router.post("/warmup")
+def warmup():
+    """Called when someone opens the demo: wakes the model if it scaled to zero (at most once a minute)."""
+    import threading
+    import time
+    if llm_agent.model_name() and time.time() - _warming["at"] > 60:
+        _warming["at"] = time.time()
+        threading.Thread(target=llm_agent.warm_up, daemon=True).start()
+    return {"model": llm_agent.model_name() or None}
+
+
 @router.get("/agents")
 def demo_agents():
     return [_agent_info(k) for k in SPECS]

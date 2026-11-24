@@ -103,11 +103,32 @@ def _chat(messages: list[dict], tools: list[dict], http=None) -> dict:
         body["reasoning_effort"] = c["reasoning"]
     headers = {"Authorization": f"Bearer {c['key']}"} if c["key"] else {}
     try:
+        headers = headers or _cloud_auth(c["url"])
         r = (http or httpx).post(f"{c['url']}/chat/completions", json=body, headers=headers, timeout=c["timeout"])
         r.raise_for_status()
         return r.json()["choices"][0]["message"]
     except Exception as e:  # noqa: BLE001
         raise AgentModelError(f"{type(e).__name__}: {e}") from e
+
+
+def _cloud_auth(url: str) -> dict:
+    try:
+        from varuna.cloudauth import auth_headers  # present when running inside the Varuna server
+    except ImportError:
+        return {}
+    return auth_headers(url)
+
+
+def warm_up() -> None:
+    """Sends a one-token request so a model that scaled to zero starts loading before anyone asks it something."""
+    if not model_name():
+        return
+    c = _cfg()
+    try:
+        httpx.post(f"{c['url']}/chat/completions", headers=_cloud_auth(c["url"]), timeout=300,
+                   json={"model": model_name(), "messages": [{"role": "user", "content": "hi"}], "max_tokens": 1})
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def _clean(text: str | None) -> str:

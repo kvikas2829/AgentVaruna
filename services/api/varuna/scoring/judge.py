@@ -201,7 +201,9 @@ class LocalJudge:
         if self.reasoning_effort:
             body["reasoning_effort"] = self.reasoning_effort
         try:
-            r = self.http.post(f"{self.url}/chat/completions", json=body, timeout=self.timeout)
+            from ..cloudauth import auth_headers
+            h = auth_headers(self.url)
+            r = self.http.post(f"{self.url}/chat/completions", json=body, timeout=self.timeout, **({"headers": h} if h else {}))
             r.raise_for_status()
             return parse_reply(r.json()["choices"][0]["message"].get("content") or "", self.name)
         except Exception as e:  # noqa: BLE001

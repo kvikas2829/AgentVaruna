@@ -21,5 +21,6 @@ ENV PYTHONPATH=/app/services/api:/app/sdk/python:/app/agents \
     VARUNA_WEB_DIST=/app/web/dist
 VOLUME /data
 EXPOSE 8000
-HEALTHCHECK CMD python -c "import urllib.request as u; u.urlopen('http://localhost:8000/healthz')"
-CMD ["uvicorn", "varuna.main:app", "--host", "0.0.0.0", "--port", "8000"]
+HEALTHCHECK CMD python -c "import os, urllib.request as u; u.urlopen(f'http://localhost:{os.getenv(\"PORT\", \"8000\")}/healthz')"
+# Cloud Run sets PORT; locally it defaults to 8000
+CMD ["sh", "-c", "exec uvicorn varuna.main:app --host 0.0.0.0 --port ${PORT:-8000}"]

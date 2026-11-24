@@ -26,6 +26,7 @@ export default function Demo({ agentKey }: { agentKey?: string }) {
     if (saved) api(`/v1/demo/${key}/chat/${saved}`).then((r) => { if (r.messages.length) { setSid(saved); setMsgs(r.messages); } }).catch(() => {});
   }, [key]);
   useEffect(() => { end.current?.scrollIntoView({ block: "end" }); }, [msgs]);
+  useEffect(() => { api("/v1/demo/warmup", { body: {} }).catch(() => {}); }, []);  // wake a scaled-to-zero model early
 
   /** Scenario buttons start a fresh conversation, so one story's bookings or approvals never carry into the next. */
   const send = async (message: string, fresh = false) => {
