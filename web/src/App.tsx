@@ -8,6 +8,7 @@ import Trace from "./pages/Trace";
 import Approvals from "./pages/Approvals";
 import Demo from "./pages/Demo";
 import Settings from "./pages/Settings";
+import Company from "./pages/Company";
 
 const Eye = ({ size = 22 }: { size?: number }) => (
   <svg width={size} height={size} viewBox="0 0 36 36" aria-hidden="true">
@@ -45,7 +46,14 @@ function Login({ onDone }: { onDone: () => void }) {
 }
 
 const NAV: [string, string][] = [["overview", "Overview"], ["agents", "Agents"], ["trace", "Live trace"], ["approvals", "Approvals"], ["demo", "Demo sandbox"]];
-const TITLES: Record<string, string> = { overview: "Overview", agents: "Agents", trace: "Live trace", approvals: "Approvals", demo: "Demo sandbox", settings: "Settings" };
+const TITLES: Record<string, string> = { overview: "Overview", agents: "Agents", trace: "Live trace", approvals: "Approvals", demo: "Demo sandbox", settings: "Settings", company: "Company policy" };
+
+function modeLabel(meta: any, agents: any[]) {
+  const modes = new Set(agents.map((a: any) => a.mode).filter(Boolean));
+  if (modes.size > 1) return "Mixed modes";
+  const m = [...modes][0] || meta?.mode?.default;
+  return m === "observe" ? "Observation only" : "Enforcing";
+}
 
 function Shell({ onLogout }: { onLogout: () => void }) {
   const { agents, agentId, setAgentId, connected, pending, meta } = useApp();
@@ -63,9 +71,11 @@ function Shell({ onLogout }: { onLogout: () => void }) {
           </a>
         ))}
         <div className="sep">Admin</div>
+        <a className={`nav ${page === "company" ? "on" : ""}`} href="#/company">Company policy</a>
         <a className={`nav ${page === "settings" ? "on" : ""}`} href="#/settings">Settings</a>
         <div className="foot">
-          <span>Judge: {meta?.judge === "claude" ? `Claude (${meta.judge_model})` : "offline heuristic"}</span>
+          <a href="#/settings" className={`chip ${modeLabel(meta, agents) === "Enforcing" ? "ok" : "warn"}`} style={{ textDecoration: "none" }} title="Observation or enforcement mode">{modeLabel(meta, agents)}</a>
+          <span>Judge: {meta?.judge === "claude" ? `Claude (${meta.judge_model})` : meta?.judge === "local" ? `local model (${meta.judge_model})` : "offline heuristic"}</span>
           <button className="btn s" onClick={onLogout}>Sign out</button>
         </div>
       </aside>
@@ -91,6 +101,7 @@ function Shell({ onLogout }: { onLogout: () => void }) {
           {page === "approvals" && <Approvals />}
           {page === "demo" && <Demo agentKey={parts[1]} />}
           {page === "settings" && <Settings />}
+          {page === "company" && <Company />}
         </main>
       </div>
     </div>

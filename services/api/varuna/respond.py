@@ -7,7 +7,7 @@ from concurrent.futures import ThreadPoolExecutor
 from email.message import EmailMessage
 
 import httpx
-from sqlalchemy import select
+from sqlalchemy import event, select
 from sqlalchemy.orm import Session as DBSession
 
 from .config import settings
@@ -16,6 +16,20 @@ from .models import Agent, Incident, Notification, ResponsePolicy, Setting, utcn
 from .streams import bus
 
 _pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="varuna-notify")
+_SENDS = "varuna_pending_sends"
+
+
+# External sends start only once the notification row is committed. Started earlier, a fast send (email that is not
+# configured, say) looked the row up before it existed and its outcome was lost.
+@event.listens_for(DBSession, "after_commit")
+def _start_sends(sess: DBSession) -> None:
+    for job in sess.info.pop(_SENDS, []):
+        _pool.submit(_send_external, *job)
+
+
+@event.listens_for(DBSession, "after_rollback")
+def _drop_sends(sess: DBSession) -> None:
+    sess.info.pop(_SENDS, None)
 
 DEFAULT_STAKEHOLDERS = [
     {"audience": "owner", "label": "Agent owner (IT manager)", "from_score": 40, "channel": "in_app", "target": ""},
@@ -88,7 +102,7 @@ def notify(db: DBSession, agent: Agent, policy: ResponsePolicy | None, decision_
         db.flush()
         ids.append(n.id)
         if n.channel != "in_app" and source != "seed":
-            _pool.submit(_send_external, n.id, n.channel, n.target, title, body, channels)
+            db.info.setdefault(_SENDS, []).append((n.id, n.channel, n.target, title, body, channels))
     return ids
 
 

@@ -213,3 +213,41 @@ def compile_risks(text: str) -> list[dict]:
         out.append({"name": _cap(name)[:120], "description": s.strip(), "category": cat, "severity": sev,
                     "extent_text": extent_text, "extent_factor": factor})
     return out
+
+
+# ---------------------------------------------------------------- company policy
+
+# A spending limit is scoped by the topic it names ("any business trip", "a laptop"); with no topic it covers every payment.
+TOPICS = {
+    "travel": ["trip", "trips", "travel", "flight", "flights", "hotel", "hotels", "airfare", "fare", "lodging"],
+    "hardware": ["laptop", "laptops", "computer", "computers", "hardware", "device", "devices", "macbook"],
+    "software": ["software", "subscription", "subscriptions", "license", "licenses", "saas"],
+    "vendor": ["vendor", "vendors", "supplier", "suppliers", "invoice", "invoices"],
+}
+TOPIC_SCOPE = {
+    "travel": ["trip", "travel", "flight", "hotel", "fare", "airfare", "lodging"],
+    "hardware": ["laptop", "computer", "hardware", "device", "macbook"],
+    "software": ["software", "subscription", "license", "saas"],
+    "vendor": ["vendor", "supplier", "invoice"],
+}
+
+
+def compile_company_policy(text: str, tools: list[dict] | None = None) -> dict:
+    """Company policy applies to every agent. It has no expected actions of its own; it adds limits on top of charters."""
+    c = compile_charter(text, tools or [])
+    rules = []
+    for i, s in enumerate(c["sentences"]):
+        low = s.lower()
+        words = set(re.findall(r"[a-z]+", low))
+        topic = next((t for t, ws in TOPICS.items() if words & set(ws)), None)
+        for am in AMOUNT.finditer(s):
+            val = float(am.group(1).replace(",", "")) * (1000 if am.group(2) else 1)
+            if re.search(r"\b(keep|limit|cap|under|no more than|up to|not exceed|at most|maximum)\b", low) or AVOID.search(s):
+                rules.append({"max": val, "topic": topic, "scope": TOPIC_SCOPE.get(topic, []), "text": _cap(s), "sentence": i})
+    limits = dict(c["limits"])
+    limits.pop("max_amount_per_action", None)
+    if rules:
+        limits["amount_rules"] = rules
+    avoid = [a for a in c["avoid"] if not a.startswith("Any single action over $")] + [r["text"] for r in rules]
+    return {"rules": _uniq(avoid), "forbidden_resources": c["forbidden_resources"], "limits": limits,
+            "sentences": c["sentences"], "objectives": c["objectives"]}

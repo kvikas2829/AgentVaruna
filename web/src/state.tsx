@@ -4,6 +4,7 @@ import { api, getToken } from "./api";
 export interface Agent {
   id: string; slug: string; name: string; description: string; domain: string; status: string; is_demo: boolean;
   paused_reason: string | null; last_seen: string | null; charter_version: number | null; tool_count: number;
+  mode?: string; mode_override?: string | null;
   actions_24h?: number; deviation_rate?: number; blocked_24h?: number; held_24h?: number; pending_approvals?: number;
 }
 

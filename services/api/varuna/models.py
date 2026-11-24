@@ -45,6 +45,19 @@ class Charter(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
+class CompanyPolicy(Base):
+    """Company-level policy: applies to every agent, on top of each agent's charter. Versioned like charters."""
+    __tablename__ = "company_policies"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    version: Mapped[int] = mapped_column(Integer)
+    status: Mapped[str] = mapped_column(String(16), default="active")  # active | archived
+    source_text: Mapped[str] = mapped_column(Text, default="")
+    data: Mapped[dict] = mapped_column(JSON, default=dict)
+    compiled_by: Mapped[str] = mapped_column(String(16), default="heuristic")
+    created_by: Mapped[str] = mapped_column(String(80), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 class RiskFactor(Base):
     __tablename__ = "risk_factors"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)

@@ -7,9 +7,10 @@ def test_travel_charter():
     assert c["objectives"] == ["Complete bookings that match each traveler's request and our travel policy"]
     assert len(c["key_results"]) == 3 and c["key_results"][0].startswith("95% of bookings")
     assert set(c["expected_actions"]) == {"search_flights", "search_hotels", "read_traveler_directory", "read_email", "book_flight",
-                                          "book_hotel", "send_itinerary", "request_manager_approval"}
+                                          "book_hotel", "send_itinerary", "request_manager_approval", "check_travel_policy",
+                                          "search_policies", "read_policy"}
     assert c["limits"]["max_amount_per_action"] == 2500
-    assert c["limits"]["allowed_domains"] == ["acme-corp.example"]
+    assert c["limits"]["allowed_domains"] == ["meridian.example"]
     assert [x.lower() for x in c["forbidden_resources"]] == ["payroll", "hr records", "customer database"]
     assert any("passport" in a.lower() for a in c["avoid"])
     assert "Corporate travel portal" in c["allowed_resources"]
@@ -21,13 +22,14 @@ def test_travel_charter():
 def test_legal_charter():
     c = heuristic.compile_charter(LEGAL_CHARTER_TEXT, LEGAL_TOOLS)
     assert c["limits"]["scope_ids"] == ["2024-CV-1187"]
-    assert set(c["limits"]["allowed_domains"]) == {"portal.hm-productions.example", "harlanmoore.example"}
+    assert set(c["limits"]["allowed_domains"]) == {"portal.hm-productions.example", "harlanmoore.example", "meridian.example"}
     assert set(c["expected_actions"]) == {"search_documents", "read_document", "tag_document", "summarize_document",
-                                          "build_production_set", "produce_to_opposing_counsel"}
+                                          "build_production_set", "produce_to_opposing_counsel", "get_matter",
+                                          "search_policies", "read_policy"}
     assert not {"delete_document", "export_documents", "send_email"} & set(c["expected_actions"])
     assert any("privileged" in a.lower() for a in c["avoid"])
-    # the case name "Reyes v. Northwind" must not split a sentence
-    assert any("Reyes v. Northwind" in s for s in c["sentences"])
+    # the case name "Northwind Retail v. Meridian Freight" must not split a sentence
+    assert any("Northwind Retail v. Meridian Freight" in s for s in c["sentences"])
 
 
 def test_refs_point_at_real_sentences():
@@ -50,7 +52,7 @@ def test_risk_compile():
 def test_protected_targets_are_extracted():
     from varuna_demo.registry import SPECS
     for key, want in (("soc", {"Domain controllers", "Production databases", "Executive accounts"}),
-                      ("itadmin", {"Domain Admins", "Global Administrators", "Executive accounts"})):
+                      ("itadmin", {"Domain Admins", "Global Administrators", "Local Admins", "CRM Admin", "HubSpot Admin", "GitHub Org Owner", "Executive accounts"})):
         c = heuristic.compile_charter(SPECS[key]["charter_text"], SPECS[key]["tools"])
         assert set(c["limits"]["protected_targets"]) == want
     soc = heuristic.compile_charter(SPECS["soc"]["charter_text"], SPECS["soc"]["tools"])

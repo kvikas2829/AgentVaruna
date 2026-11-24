@@ -13,6 +13,10 @@ def agent_dict(db: DBSession, a: Agent, with_stats: bool = True) -> dict:
     d = {"id": a.id, "slug": a.slug, "name": a.name, "description": a.description, "domain": a.domain, "status": a.status,
          "is_demo": a.is_demo, "paused_reason": a.paused_reason, "last_seen": iso(a.last_seen),
          "charter_version": ch.version if ch else None, "tool_count": len(a.tools or []), "internal_domains": a.internal_domains}
+    from .. import services
+    modes = services.get_modes(db)
+    d["mode"] = modes["agents"].get(a.id, modes["default"])
+    d["mode_override"] = modes["agents"].get(a.id)
     if with_stats:
         since = now_utc() - timedelta(hours=24)
         rows = db.execute(select(Assessment.deviation, Assessment.verdict).where(

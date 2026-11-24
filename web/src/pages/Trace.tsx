@@ -63,7 +63,7 @@ export default function Trace({ sessionId }: { sessionId?: string }) {
                      onKeyDown={(k) => { if (k.key === "Enter") setSel(e.id); }} role="button" aria-label={`${TYPE_LABEL[e.type] || e.type}: ${e.summary}`}>
                   <span className="num muted">{fmtTime(e.ts)}</span><span className="k">{TYPE_LABEL[e.type] || e.type}</span>
                   <span className="t">{e.summary}</span>
-                  <span>{a?.enforceable ? <><Scores dev={a.deviation} risk={a.risk} /> <Verdict verdict={a.verdict} band={a.band} /></> : a ? <Scores dev={a.deviation} risk={a.risk} /> : null}</span>
+                  <span>{a?.enforceable ? <><Scores dev={a.deviation} risk={a.risk} /> <Verdict verdict={a.verdict} band={a.band} would={a.explain?.would_verdict} /></> : a ? <Scores dev={a.deviation} risk={a.risk} /> : null}</span>
                 </div>
               );
             })}
@@ -76,12 +76,14 @@ export default function Trace({ sessionId }: { sessionId?: string }) {
           const a = ev.assessment;
           return (
             <>
-              <div className="row"><Scores dev={a.deviation} risk={a.risk} /><Verdict verdict={a.verdict} band={a.band} />
+              <div className="row"><Scores dev={a.deviation} risk={a.risk} /><Verdict verdict={a.verdict} band={a.band} would={a.explain?.would_verdict} />
+                {a.explain?.mode === "observe" && <Chip kind="n">Observation mode</Chip>}
                 <span className="muted small">Judged by {a.judge || "rules"} · tier {a.tier} · {Math.round(a.latency_ms)} ms · charter v{a.charter_version}</span></div>
               <div className="tabs" role="tablist">{[["why", "Explain"], ["rules", "Rules"], ["json", "Raw"]].map(([k, l]) => <button key={k} role="tab" aria-selected={tab === k} className={tab === k ? "on" : ""} onClick={() => setTab(k)}>{l}</button>)}</div>
               {tab === "why" && (
                 <div className="stack">
-                  <div className="why"><b>Decision</b><span>{a.reason}</span></div>
+                  <div className="why"><b>Decision</b><span>{a.reason || "Allowed."}</span></div>
+                  {!!a.explain?.company_policy?.length && <div className="why"><b>Company policy</b><span>{a.explain.company_policy.join(" ")}{a.explain.company_policy_version ? ` (company policy v${a.explain.company_policy_version})` : ""}</span></div>}
                   {a.explain?.deviation_reason && <div className="why"><b>Deviation {Math.round(a.deviation)}</b><span>{a.explain.deviation_reason}</span></div>}
                   {a.explain?.risk_reason && <div className="why"><b>Risk {Math.round(a.risk)}</b><span>{a.explain.risk_reason}</span></div>}
                   {(a.explain?.factors || []).map((f: any, i: number) => <div className="why" key={i}><b>{f.name || f.label}</b><span>{f.category ? `${String(f.category).replace("_", " ")}: ` : ""}{f.likelihood !== undefined ? `likelihood ${f.likelihood}, severity ${f.severity}/5, contributes ${Math.round(f.contribution ?? 0)}` : (f.detail || f.text || "")}</span></div>)}
@@ -89,7 +91,7 @@ export default function Trace({ sessionId }: { sessionId?: string }) {
                 </div>
               )}
               {tab === "rules" && (a.rule_hits?.length ? a.rule_hits.map((h: any, i: number) => (
-                <div className="why" key={i}><b>{h.rule} · {h.category || ""} · floor {Math.round(h.floor ?? h.score ?? 0)}</b><span>{h.message || h.reason}</span></div>
+                <div className="why" key={i}><b>{h.id || h.rule} · {String(h.category || "").replace("_", " ")} · floor {Math.round(h.dev_floor ?? h.floor ?? 0)}</b><span>{h.text || h.message || h.reason}</span></div>
               )) : <Empty>No rules fired.</Empty>)}
               {tab === "json" && <pre className="json">{JSON.stringify(ev.payload, null, 2)}</pre>}
               {ev.type === "tool_call" && (

@@ -12,7 +12,7 @@ from .bootstrap import bootstrap
 from .config import settings
 from .db import get_engine, session_scope
 from .models import Session
-from .routes import admin, demo, ingest, monitor, system
+from .routes import admin, demo, ingest, monitor, system, company
 
 log = logging.getLogger("varuna")
 
@@ -37,7 +37,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Agent Varuna", version=__version__, lifespan=lifespan)
-for r in (system.router, ingest.router, admin.router, monitor.router, demo.router):
+for r in (system.router, ingest.router, admin.router, monitor.router, demo.router, company.router):
     app.include_router(r)
 
 

@@ -6,11 +6,13 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session as DBSession
 
-from .. import __version__, seed
+from varuna_demo.meridian import company
+
+from .. import __version__, seed, services
 from ..config import settings
 from ..db import get_db
 from ..models import Setting
-from ..scoring.judge import claude_enabled
+from ..scoring.judge import judge_kind
 from ..security import admin_user, check_login, make_token
 from ..streams import bus
 
@@ -31,9 +33,12 @@ def login(body: LoginIn):
 
 @router.get("/meta")
 def meta(db: DBSession = Depends(get_db)):
-    return {"version": __version__, "judge": "claude" if claude_enabled() else "heuristic", "judge_model": settings.judge_model if claude_enabled() else None,
+    kind = judge_kind()
+    model = {"claude": settings.judge_model, "local": settings.local_model}.get(kind)
+    return {"version": __version__, "judge": kind, "judge_model": model,
             "judge_timeout_s": settings.judge_timeout, "smtp_configured": settings.smtp is not None,
-            "has_sample": seed.has_sample(db)}
+            "has_sample": seed.has_sample(db), "mode": services.get_modes(db),
+            "company": company.COMPANY_NAME}
 
 
 class ChannelsIn(BaseModel):

@@ -5,6 +5,9 @@ _tmp = tempfile.mkdtemp(prefix="varuna-test-")
 os.environ["VARUNA_DATA_DIR"] = _tmp
 os.environ["VARUNA_SEED"] = "0"
 os.environ.pop("ANTHROPIC_API_KEY", None)
+os.environ.pop("VARUNA_LOCAL_MODEL", None)
+os.environ.pop("VARUNA_JUDGE", None)
+os.environ.pop("VARUNA_AGENT_MODEL", None)
 
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
@@ -19,7 +22,9 @@ from varuna_sdk import VarunaClient  # noqa: E402
 
 @pytest.fixture()
 def fresh_db(tmp_path):
-    """A clean database with the two demo agents."""
+    """A clean database with the demo agents, and Meridian's stub systems back at their starting data."""
+    from varuna_demo.meridian import mcp_servers
+    mcp_servers.reset()
     dbm.init_engine(f"sqlite:///{tmp_path / 't.db'}")
     with dbm.session_scope() as db:
         bootstrap(db)

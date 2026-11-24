@@ -186,7 +186,7 @@ def test_webhook_notification_delivered(client, travel):
 
 def test_demo_chat_and_retry_after_approval(client, legal):
     info = client.get("/v1/demo/agents").json()
-    assert [a["key"] for a in info] == ["travel", "legal", "soc", "itadmin"] and all(len(a["scenarios"]) == 5 for a in info)
+    assert [a["key"] for a in info] == ["travel", "legal", "soc", "itadmin"] and all(len(a["scenarios"]) >= 5 for a in info)
     msg = next(s["message"] for s in info[1]["scenarios"] if s["id"] == "cross_matter")
     r = client.post("/v1/demo/legal/chat", json={"message": msg}).json()
     holds = [m for m in r["messages"] if m.get("verdict") == "hold"]

@@ -179,7 +179,8 @@ class RiskIn(BaseModel):
 
 def risk_dict(r: RiskFactor) -> dict:
     return {"id": r.id, "name": r.name, "description": r.description, "category": r.category, "severity": r.severity,
-            "extent_text": r.extent_text, "extent_factor": r.extent_factor, "applies_to": r.applies_to}
+            "extent_text": r.extent_text, "extent_factor": r.extent_factor, "applies_to": r.applies_to,
+            "scope": "agent" if r.applies_to else "company"}
 
 
 def _check_cat(c: str):

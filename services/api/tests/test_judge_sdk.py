@@ -5,7 +5,8 @@ import pytest
 
 from conftest import sdk
 from varuna import db as dbm, services
-from varuna.scoring.judge import ClaudeJudge, JudgeContext, JudgeError
+from varuna.scoring import judge as judge_mod
+from varuna.scoring.judge import ClaudeJudge, JudgeContext, JudgeError, LocalJudge
 from varuna_sdk import ActionBlocked, ActionHeld, VarunaClient, Verdict
 from varuna_sdk.claude_agent_hooks import post_tool_use, pre_tool_use
 
@@ -62,6 +63,82 @@ def test_claude_judge_can_raise_a_score(fresh_db, monkeypatch):
     monkeypatch.setattr(services, "get_sync_judge", lambda: strict)
     v = sdk("agt_travel").guard("book_flight", {"flight_id": "a", "traveler": "b", "price": 600})
     assert v.verdict == "block"
+
+
+# ---------------------------------------------------------------- local model judge
+
+class FakeHttp:
+    """Stands in for httpx.Client, answering like an OpenAI-compatible chat endpoint."""
+
+    def __init__(self, content=None, status=200, exc=None):
+        self.content, self.status, self.exc, self.posts = content, status, exc, []
+
+    def post(self, url, json=None, timeout=None):
+        self.posts.append((url, json, timeout))
+        if self.exc:
+            raise self.exc
+        content, status = self.content, self.status
+
+        class R:
+            status_code = status
+
+            def raise_for_status(self):
+                if status >= 400:
+                    raise RuntimeError(f"HTTP {status}")
+
+            def json(self):
+                return {"choices": [{"message": {"content": content}}]}
+        return R()
+
+
+def test_local_judge_sends_the_same_prompt_and_parses():
+    http = FakeHttp('<think>The cap is $2,500 {not json}</think>{"deviation": 72, "likelihoods": {"financial": 0.8}, "rationale": "Over the cap."}')
+    r = LocalJudge(url="http://h:1/v1/", model="qwen3:14b", timeout=2, reasoning_effort="low", client=http).judge(CTX)
+    assert (r.deviation, r.likelihoods, r.judge) == (72, {"financial": 0.8}, "local:qwen3:14b")
+    url, body, timeout = http.posts[0]
+    assert url == "http://h:1/v1/chat/completions" and timeout == 2 and body["model"] == "qwen3:14b"
+    assert body["reasoning_effort"] == "low" and body["temperature"] == 0
+    assert body["messages"][0]["content"] == judge_mod.SYSTEM_PROMPT and "<event" in body["messages"][1]["content"]
+    plain = FakeHttp('{"deviation": 1}')
+    LocalJudge(model="m", reasoning_effort="", client=plain).judge(CTX)
+    assert "reasoning_effort" not in plain.posts[0][1]  # models without reasoning get no such field
+
+
+@pytest.mark.parametrize("http", [FakeHttp("no json"), FakeHttp('{"x": 1}'), FakeHttp("{}", status=500), FakeHttp(exc=TimeoutError("slow"))])
+def test_local_judge_errors_become_judge_error(http):
+    with pytest.raises(JudgeError):
+        LocalJudge(model="m", client=http).judge(CTX)
+
+
+def test_judge_selection(monkeypatch):
+    for k in ("VARUNA_JUDGE", "VARUNA_LOCAL_MODEL", "ANTHROPIC_API_KEY"):
+        monkeypatch.delenv(k, raising=False)
+    assert judge_mod.judge_kind() == "heuristic"
+    monkeypatch.setenv("VARUNA_LOCAL_MODEL", "qwen3:14b")
+    assert judge_mod.judge_kind() == "local" and isinstance(judge_mod.get_sync_judge(), LocalJudge)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "k")
+    assert judge_mod.judge_kind() == "claude"            # auto prefers Claude when both are set
+    monkeypatch.setenv("VARUNA_JUDGE", "local")
+    assert judge_mod.judge_kind() == "local"
+    monkeypatch.setenv("VARUNA_JUDGE", "heuristic")
+    assert judge_mod.judge_kind() == "heuristic" and not judge_mod.model_judge_enabled()
+    monkeypatch.setenv("VARUNA_JUDGE", "local")
+    monkeypatch.delenv("VARUNA_LOCAL_MODEL")
+    assert judge_mod.judge_kind() == "heuristic"         # local asked for, but no model named
+
+
+def test_local_judge_counts_as_tier_1_and_can_raise_a_score(fresh_db, monkeypatch):
+    strict = LocalJudge(model="m", client=FakeHttp('{"deviation": 95, "likelihoods": {"financial": 0.95}, "rationale": "Fraud."}'))
+    monkeypatch.setattr(services, "get_sync_judge", lambda: strict)
+    v = sdk("agt_travel").guard("book_flight", {"flight_id": "a", "traveler": "b", "price": 600})
+    assert v.verdict == "block" and v.raw["tier"] == 1 and v.raw["judge"] == "local:m"
+
+
+def test_meta_reports_the_local_judge(client, monkeypatch):
+    monkeypatch.setenv("VARUNA_JUDGE", "local")
+    monkeypatch.setenv("VARUNA_LOCAL_MODEL", "gpt-oss-safeguard:20b")
+    m = client.get("/v1/meta").json()
+    assert m["judge"] == "local" and m["judge_model"] == "gpt-oss-safeguard:20b"
 
 
 # ---------------------------------------------------------------- SDK
@@ -137,3 +214,16 @@ def test_claude_agent_hooks():
     t = StubTransport("allow")
     asyncio.run(post_tool_use(VarunaClient(t))({"tool_name": "x", "tool_response": "r"}))
     assert t.events[0][0] == "tool_result"
+
+
+def test_judge_comparison_cases_use_real_tools():
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "eval"))
+    from judge_cases import all_cases
+    from varuna_demo.registry import SPECS
+    cases = all_cases()
+    assert len({c["id"] for c in cases}) == len(cases)
+    for c in cases:
+        if c["event_type"] == "tool_call":
+            assert c["payload"]["tool"] in {t["name"] for t in SPECS[c["agent"]]["tools"]}, c["id"]

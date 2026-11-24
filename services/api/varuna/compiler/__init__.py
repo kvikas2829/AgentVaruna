@@ -23,3 +23,8 @@ def compile_risks(text: str) -> tuple[list[dict], str]:
         except Exception as e:  # noqa: BLE001
             log.warning("Claude risk compile failed, using offline reader: %s", e)
     return heuristic.compile_risks(text), "heuristic"
+
+
+def compile_company_policy(text: str, tools: list[dict]) -> tuple[dict, str]:
+    """Offline only for now: its output must be checkable rules, which the reader produces deterministically."""
+    return heuristic.compile_company_policy(text, tools), "heuristic"

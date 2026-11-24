@@ -19,12 +19,24 @@ class Settings:
         return os.getenv("ANTHROPIC_API_KEY") or None
 
     @property
-    def judge_mode(self) -> str:  # auto | claude | heuristic
+    def judge_mode(self) -> str:  # auto | claude | local | heuristic
         return os.getenv("VARUNA_JUDGE", "auto").lower()
 
     @property
     def judge_model(self) -> str:
         return os.getenv("VARUNA_JUDGE_MODEL", "claude-sonnet-5-5")
+
+    @property
+    def local_url(self) -> str:  # an OpenAI-compatible endpoint; Ollama's by default
+        return os.getenv("VARUNA_LOCAL_URL", "http://localhost:11434/v1")
+
+    @property
+    def local_model(self) -> str | None:  # e.g. qwen3:14b or gpt-oss-safeguard:20b
+        return os.getenv("VARUNA_LOCAL_MODEL") or None
+
+    @property
+    def local_reasoning_effort(self) -> str | None:  # low | medium | high for reasoning models; empty to omit
+        return os.getenv("VARUNA_LOCAL_REASONING", "low") or None
 
     @property
     def judge_timeout(self) -> float:

@@ -36,7 +36,7 @@ def summarize_call(tool: str, args: dict) -> str:
 
 def score_event(event_type: str, payload: dict, *, charter: dict, tools: list[dict], risk_factors: list[dict],
                 internal_domains: list[str], tainted: bool, history: list[HistoryItem], now,
-                thresholds: dict | None, judge: Judge | None = None) -> Scored:
+                thresholds: dict | None, judge: Judge | None = None, company: dict | None = None) -> Scored:
     t0 = time.perf_counter()
     tool = str(payload.get("tool", "")) if event_type in ("tool_call", "tool_result") else ""
     args = payload.get("args") or {}
@@ -49,10 +49,11 @@ def score_event(event_type: str, payload: dict, *, charter: dict, tools: list[di
         s_hits, patterns = sequence.analyze(tool, args_hash(tool, args), kind, rules.amount_of(args),
                                             rules.count_of(args), charter, history, now)
         hits += s_hits
+    hits += rules.evaluate_company(event_type, payload, company or {}, tool_meta, history)
 
     judge = judge or heuristic()
     judge_failed = False
-    ctx = JudgeContext(event_type, payload, charter, tool_meta,
+    ctx = JudgeContext(event_type, payload, charter, tool_meta, company=company or {},
                        recent=[f"{h.type}:{h.tool or ''} {h.verdict} dev={h.deviation:.0f}" for h in history[-8:]])
     try:
         jr = judge.judge(ctx)
@@ -60,7 +61,7 @@ def score_event(event_type: str, payload: dict, *, charter: dict, tools: list[di
         jr = heuristic().judge(ctx)
         jr.judge = "heuristic (fallback)"
         judge_failed = True
-    tier = 1 if jr.judge == "claude" else 0
+    tier = 0 if jr.judge.startswith("heuristic") else 1  # Claude or a local model
 
     # semantic match and drift only mean something for actions and thoughts
     floor = max([h.dev_floor for h in hits], default=0.0)
@@ -112,7 +113,7 @@ def score_event(event_type: str, payload: dict, *, charter: dict, tools: list[di
 
     top = sorted(hits, key=lambda h: -h.dev_floor)
     dev_reason = "; ".join(h.text for h in top[:3]) or jr.rationale or "In line with the charter."
-    if hits and jr.rationale and jr.judge == "claude":
+    if hits and jr.rationale and tier == 1:
         dev_reason += f" Judge: {jr.rationale}"
     if factors:
         f0 = factors[0]
@@ -121,7 +122,8 @@ def score_event(event_type: str, payload: dict, *, charter: dict, tools: list[di
         risk_reason = "No risk factors are registered for this agent, so risk stays at 0."
     else:
         risk_reason = "No registered risk looks likely for this action."
-    explain = {"deviation_reason": dev_reason, "risk_reason": risk_reason, "factors": factors[:4],
+    company_hits = [h.text for h in top if h.id.startswith("CO-")]
+    explain = {"deviation_reason": dev_reason, "company_policy": company_hits, "risk_reason": risk_reason, "factors": factors[:4],
                "components": {"judge": round(jr.deviation, 1), "semantic": round(sem, 1),
                               "drift": round(drift, 1), "rule_floor": round(floor, 1)}}
     return Scored(deviation=round(deviation, 1), risk=round(risk, 1), decision_score=round(dscore, 1), band=band,

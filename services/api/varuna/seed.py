@@ -15,7 +15,7 @@ from .localgw import LocalTransport
 from .models import (Agent, Approval, Assessment, Event, Incident, Notification, Pattern, Session)
 from .utils import now_utc
 
-NAMES = ["M. Alvarez", "R. Chen", "T. Okafor", "J. Park", "S. Novak", "A. Haddad", "L. Brooks", "P. Iyer", "D. Moreau"]
+NAMES = ["Alex Rivera", "Priya Shah", "Sam Patel", "Jordan Kim", "Kevin Osei", "Tom Becker", "Sarah Lin", "Marcus Hall", "Aisha Khan"]
 MATTERS = ["Northwind custodian emails", "Warehouse memos", "Dispatch logs", "Carrier correspondence"]
 ALERTS = ["phishing on WS-114", "suspicious PowerShell", "impossible travel login", "malware beacon", "brute-force on VPN"]
 REQUESTS = ["password reset", "group change", "access request", "MFA re-enrol", "laptop unlock"]
@@ -53,6 +53,12 @@ def has_sample(db) -> bool:
 
 
 def seed(hours: int = 24, normal_per_agent: int = 28, risky_per_agent: int = 5, rng_seed: int = 7) -> int:
+    from .scoring.judge import offline_judging
+    with offline_judging():  # sample history is scored offline, so it never queues behind a model
+        return _seed(hours, normal_per_agent, risky_per_agent, rng_seed)
+
+
+def _seed(hours: int, normal_per_agent: int, risky_per_agent: int, rng_seed: int) -> int:
     random.seed(rng_seed)
     end = now_utc() - timedelta(minutes=20)
     start = end - timedelta(hours=hours)

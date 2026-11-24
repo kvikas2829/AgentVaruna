@@ -3,6 +3,37 @@ import { api, ago } from "../api";
 import { useApp, useData } from "../state";
 import { Chip, Empty, Panel } from "../ui";
 
+const MODE_TEXT: Record<string, string> = {
+  enforce: "Each action waits for Varuna's verdict and can be slowed, held for approval or blocked.",
+  observe: "Varuna answers at once and never stops anything. It scores, alerts and records what it would have done, in the background.",
+};
+
+function Modes() {
+  const { agents, refreshAgents, toast } = useApp();
+  const { data: m, reload } = useData<any>("/v1/settings/mode");
+  if (!m) return <Panel title="Observation or enforcement"><Empty>Loading</Empty></Panel>;
+  const setDefault = async (v: string) => { await api("/v1/settings/mode", { method: "PUT", body: { default: v } }); toast(v === "observe" ? "Company default: observation only" : "Company default: enforcing"); reload(); refreshAgents(); };
+  const setAgent = async (id: string, v: string) => { await api(`/v1/agents/${id}/mode`, { method: "PUT", body: { mode: v || null } }); reload(); refreshAgents(); };
+  return (
+    <Panel title="Observation or enforcement">
+      <div className="seg" role="radiogroup" aria-label="Company default mode">
+        {[["enforce", "Enforce"], ["observe", "Observe only"]].map(([k, l]) => <button key={k} role="radio" aria-checked={m.default === k} aria-pressed={m.default === k} onClick={() => setDefault(k)}>{l}</button>)}
+      </div>
+      <p className="muted small" style={{ marginTop: 8 }}>Company default. {MODE_TEXT[m.default]}</p>
+      <div className="lab">Per agent</div>
+      <div className="stack">{agents.map((a) => (
+        <div key={a.id} className="row sp">
+          <span>{a.name} <Chip kind={a.mode === "observe" ? "warn" : "ok"}>{a.mode === "observe" ? "Observing" : "Enforcing"}</Chip></span>
+          <select className="select" value={m.agents[a.id] || ""} onChange={(e) => setAgent(a.id, e.target.value)} aria-label={`Mode for ${a.name}`}>
+            <option value="">Company default ({m.default === "observe" ? "observe" : "enforce"})</option>
+            <option value="enforce">Enforce</option>
+            <option value="observe">Observe only</option>
+          </select>
+        </div>))}</div>
+    </Panel>
+  );
+}
+
 export default function Settings() {
   const { meta, toast, agentId } = useApp();
   const { data: ch } = useData<any>("/v1/settings/channels");
@@ -14,6 +45,21 @@ export default function Settings() {
   return (
     <>
       <div className="grid g11">
+        <Modes />
+        <Panel title="Judge">
+          <div className="row"><Chip kind={meta?.judge === "heuristic" ? "warn" : "ok"}>{meta?.judge === "claude" ? `Claude (${meta.judge_model})` : meta?.judge === "local" ? `Local model (${meta.judge_model})` : "Offline heuristic"}</Chip></div>
+          <p className="muted small" style={{ marginTop: 8 }}>{meta?.judge === "heuristic"
+            ? "Varuna scores with its rules and a built-in phrase judge. Set ANTHROPIC_API_KEY or VARUNA_LOCAL_MODEL and restart to add a model judge."
+            : `The model judges high-impact actions against the company policy and the agent's charter, with a ${meta?.judge_timeout_s}s limit, then falls back to the offline judge. Other actions use the rules and the offline judge.`}</p>
+          <div className="lab">Sample data</div>
+          <p className="muted small">{m?.has_sample ? "Generated sample history is present." : "No sample data is present."}</p>
+          <div className="row">
+            {m?.has_sample && <button className="btn" onClick={async () => { await api("/v1/sample-data", { method: "DELETE" }); toast("Sample data cleared"); rm(); }}>Clear sample data</button>}
+            <button className="btn" onClick={async () => { await api("/v1/sample-data", { body: {} }); toast("Generating sample history…"); window.setTimeout(rm, 4000); }}>Regenerate sample data</button>
+          </div>
+        </Panel>
+      </div>
+      <div className="grid g11">
         <Panel title="Notification channels">
           <p className="muted small">In-app notifications are always recorded. Add channels to also send them out.</p>
           {f && <>
@@ -23,18 +69,7 @@ export default function Settings() {
             <p className="muted small">{meta?.smtp_configured ? "SMTP is configured." : "SMTP is not configured on the server, so emails are logged instead of sent."}</p>
             <div className="row"><button className="btn p" onClick={save}>Save channels</button></div></>}
         </Panel>
-        <Panel title="Judge">
-          <div className="row"><Chip kind={meta?.judge === "claude" ? "ok" : "warn"}>{meta?.judge === "claude" ? `Claude (${meta.judge_model})` : "Offline heuristic"}</Chip></div>
-          <p className="muted small" style={{ marginTop: 8 }}>{meta?.judge === "claude"
-            ? `Claude judges high-impact actions before they run, with a ${meta.judge_timeout_s}s limit, then falls back to the heuristic judge.`
-            : "No ANTHROPIC_API_KEY is set, so Varuna scores with its rules and a built-in lexicon judge. Set the key and restart to add Claude."}</p>
-          <div className="lab">Sample data</div>
-          <p className="muted small">{m?.has_sample ? "Generated sample history is present." : "No sample data is present."}</p>
-          <div className="row">
-            {m?.has_sample && <button className="btn" onClick={async () => { await api("/v1/sample-data", { method: "DELETE" }); toast("Sample data cleared"); rm(); }}>Clear sample data</button>}
-            <button className="btn" onClick={async () => { await api("/v1/sample-data", { body: {} }); toast("Generating sample history…"); window.setTimeout(rm, 4000); }}>Regenerate sample data</button>
-          </div>
-        </Panel>
+
       </div>
       <Panel title="Notification log">
         {notes && notes.length ? <div className="tbl"><table>

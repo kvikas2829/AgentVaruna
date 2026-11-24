@@ -1,16 +1,25 @@
-"""First-run setup: the two demo agents with charters, a risk register and response policies."""
+"""First-run setup: Meridian Freight's company policy and risk register, and the demo agents with charters,
+risks and response policies."""
 from sqlalchemy import select
 from sqlalchemy.orm import Session as DBSession
 
+from varuna_demo.meridian import company
 from varuna_demo.registry import SPECS
 
 from . import services
 from .compiler import heuristic
-from .models import Agent, Charter, RiskFactor
+from .models import Agent, Charter, CompanyPolicy, RiskFactor
 from .security import new_agent_key
 
 
 def bootstrap(db: DBSession) -> None:
+    if db.scalar(select(CompanyPolicy.id).limit(1)) is None:
+        tools = [t for spec in SPECS.values() for t in spec["tools"]]
+        db.add(CompanyPolicy(version=1, status="active", source_text=company.COMPANY_POLICY_TEXT,
+                             data=heuristic.compile_company_policy(company.COMPANY_POLICY_TEXT, tools),
+                             compiled_by="heuristic", created_by="setup"))
+        for r in company.COMPANY_RISKS:
+            db.add(RiskFactor(applies_to=[], **r))
     for key, spec in SPECS.items():
         agent = db.scalar(select(Agent).where(Agent.slug == key))
         if agent:

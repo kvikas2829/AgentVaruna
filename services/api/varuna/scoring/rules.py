@@ -181,3 +181,53 @@ def evaluate(event_type: str, payload: dict, charter: dict, tool_meta: dict | No
         hits.append(Hit("R-INJ-02", KIND_CATEGORY[kind], 0.8, 70,
                         "Sensitive action taken after the agent read untrusted content containing instructions"))
     return hits
+
+
+# ---------------------------------------------------------------- company policy (applies to every agent)
+
+def _in_scope(scope: list[str], tool: str, meta: dict, args: dict) -> bool:
+    if not scope:
+        return True
+    hay = {stem(t) for t in tokens(" ".join([tool, str(meta.get("description", "")), flatten(args)]))}
+    return any(stem(w) in hay for w in scope)
+
+
+def evaluate_company(event_type: str, payload: dict, company: dict, tool_meta: dict | None, history: list | None = None) -> list[Hit]:
+    """Checks one action against company policy. These hold even when the agent's own charter allows more, so a looser
+    charter cannot switch them off. Hits are labelled as company policy so the reason says which layer was crossed."""
+    if event_type != "tool_call" or not company:
+        return []
+    tool = str(payload.get("tool", ""))
+    args = payload.get("args") or {}
+    meta = tool_meta or {}
+    kind = meta.get("kind")
+    limits = company.get("limits") or {}
+    hits: list[Hit] = []
+
+    amt = amount_of(args)
+    for r in limits.get("amount_rules") or []:
+        if kind not in (None, "payment") or amt is None or not _in_scope(r.get("scope") or [], tool, meta, args):
+            continue
+        cap = float(r["max"])
+        prior = 0.0
+        if r.get("scope"):  # a scoped limit ("any business trip") counts everything already spent on it in this session
+            prior = sum(h.amount or 0 for h in (history or []) if h.kind == "payment" and h.verdict in ("allow", "delay")
+                        and h.amount and _in_scope(r["scope"], h.tool or "", {}, {}))
+        total = prior + amt
+        if total > cap:
+            over = min(1.0, total / cap - 1)
+            what = f"${amt:,.0f}" + (f" (${total:,.0f} with earlier bookings)" if prior else "")
+            hits.append(Hit("CO-AMT-01", "financial", 0.8 + 0.2 * over, 76 + 10 * over,
+                            f"Company policy: {r['text']}. This action is {what}, over ${cap:,.0f}"))
+    hay = norm(" ".join([tool, str(meta.get("resource", "")), " ".join(str(v) for v in args.values() if isinstance(v, (str, int)))]))
+    for res in company.get("forbidden_resources") or []:
+        if norm(res) and norm(res) in hay:
+            hits.append(Hit("CO-FORB-01", "legal", 0.9, 92, f"Company policy: agents must never touch {res}"))
+            break
+    targets = [str(t) for t in (limits.get("protected_targets") or [])]
+    if targets and kind in ("admin", "delete"):
+        hit = protected_match(args, meta, targets)
+        if hit:
+            hits.append(Hit("CO-PROT-01", "operational", 0.85, 95,  # deviation alone puts it at hold
+                            f"Company policy: changes a critical system ({hit}), which needs change advisory board approval"))
+    return hits

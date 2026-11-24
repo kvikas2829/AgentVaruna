@@ -9,7 +9,11 @@ export function Chip({ kind = "n", children }: { kind?: "ok" | "warn" | "crit" |
 }
 
 /** One chip that says what Varuna did with an action. */
-export function Verdict({ verdict, band }: { verdict?: string; band?: string }) {
+export function Verdict({ verdict, band, would }: { verdict?: string; band?: string; would?: string }) {
+  if (band === "pending") return <Chip kind="n">Allowed · scoring</Chip>;
+  if (would === "block") return <Chip kind="crit">Would have blocked</Chip>;
+  if (would === "hold") return <Chip kind="warn">Would have held</Chip>;
+  if (would === "delay") return <Chip kind="warn">Would have slowed</Chip>;
   if (verdict === "block") return <Chip kind="crit">Blocked</Chip>;
   if (verdict === "hold") return <Chip kind="warn">Held for approval</Chip>;
   if (verdict === "delay") return <Chip kind="warn">Slowed</Chip>;
