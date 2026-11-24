@@ -58,6 +58,25 @@ class CompanyPolicy(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
+class KnownResource(Base):
+    """What Varuna knows an identifier refers to (from the asset inventory, document classification and so on), so an
+    action that names only an ID ("WMS-APP-01", "D-1090") can still be checked against policy."""
+    __tablename__ = "known_resources"
+    key: Mapped[str] = mapped_column(String(80), primary_key=True)  # upper-case identifier
+    text: Mapped[str] = mapped_column(String(400))
+    source: Mapped[str] = mapped_column(String(40), default="catalog")
+
+
+class SessionFact(Base):
+    """What a tool told the agent an identifier is, earlier in the same session."""
+    __tablename__ = "session_facts"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    session_id: Mapped[str] = mapped_column(String(48), index=True)
+    key: Mapped[str] = mapped_column(String(80))
+    text: Mapped[str] = mapped_column(String(400))
+    tool: Mapped[str] = mapped_column(String(120), default="")
+
+
 class RiskFactor(Base):
     __tablename__ = "risk_factors"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)

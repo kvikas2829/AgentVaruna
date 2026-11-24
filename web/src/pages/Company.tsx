@@ -122,6 +122,22 @@ function RiskRegister() {
   );
 }
 
+function KnownResources() {
+  const { data } = useData<any[]>("/v1/company/resources");
+  const [q, setQ] = useState("");
+  const rows = (data || []).filter((r) => !q || `${r.key} ${r.text}`.toLowerCase().includes(q.toLowerCase()));
+  return (
+    <Panel title="What Varuna knows about your systems" note={data ? `${data.length} identifiers` : undefined}>
+      <p className="muted small">Imported from the asset inventory, document classification and supplier catalogs. When an agent names only an ID (say, isolate WMS-APP-01), Varuna checks the action as if it named what the ID is, so company rules still apply. It also learns IDs from what tools return during a conversation.</p>
+      <input className="input" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Filter, e.g. HR or critical" aria-label="Filter identifiers" />
+      <div className="tbl" style={{ maxHeight: 280, overflow: "auto", marginTop: 8 }}><table>
+        <thead><tr><th>Identifier</th><th>What it is</th></tr></thead>
+        <tbody>{rows.map((r) => <tr key={r.key}><td className="mono">{r.key}</td><td className="small">{r.text}</td></tr>)}</tbody>
+      </table></div>
+    </Panel>
+  );
+}
+
 export default function Company() {
   const { meta } = useApp();
   return (
@@ -129,6 +145,7 @@ export default function Company() {
       <p className="muted" style={{ maxWidth: 760 }}>{meta?.company || "The company"}'s policy and risk register sit above every agent. An agent's charter can only narrow what is allowed: if a charter is looser than company policy, Varuna applies the company rule and the reason names it.</p>
       <PolicyEditor />
       <RiskRegister />
+      <KnownResources />
     </>
   );
 }

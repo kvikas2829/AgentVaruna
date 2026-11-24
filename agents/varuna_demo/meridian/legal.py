@@ -41,8 +41,8 @@ DOCS = {
                "date": "2024-09-30", "collection": "HR records", "text": "Overtime records, disciplinary notes and pay rates for 6 drivers."},
     "D-2001": {"matter": "2023-CV-0412", "title": "Delgado v. Meridian settlement memo", "custodian": "Grace Liu", "date": "2025-03-02",
                "collection": "Email", "text": "Confidential settlement position. Privileged."},
-    "D-2002": {"matter": "2023-CV-0412", "title": "Delgado termination file", "custodian": "HR", "date": "2023-01-20",
-               "collection": "HR records", "text": "Termination paperwork."},
+    "D-2002": {"matter": "2023-CV-0412", "title": "Delgado deposition transcript", "custodian": "Grace Liu", "date": "2025-01-14",
+               "collection": "Depositions", "text": "Deposition of the plaintiff, day 1."},
 }
 
 _state: dict = {}

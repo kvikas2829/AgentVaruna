@@ -11,9 +11,11 @@ from sqlalchemy import event as sa_event, func, select
 from sqlalchemy.orm import Session as DBSession
 
 from . import respond
-from .decision import DEFAULT_THRESHOLDS, band_rank, verdict_for
-from .models import (Agent, Approval, Assessment, Charter, CompanyPolicy, Event, Pattern, ResponsePolicy, RiskFactor,
-                     Session, Setting, utcnow)
+from .decision import DEFAULT_THRESHOLDS, band_for, band_rank, decision_score, verdict_for
+import re
+
+from .models import (Agent, Approval, Assessment, Charter, CompanyPolicy, Event, KnownResource, Pattern, ResponsePolicy,
+                     RiskFactor, Session, SessionFact, Setting, utcnow)
 from .scoring import engine
 from .scoring.judge import get_sync_judge, heuristic, model_judge_enabled
 from .scoring.rules import amount_of, count_of
@@ -105,6 +107,73 @@ def _safe(fn, *args):
         log.exception("background scoring failed")
 
 
+# ----------------------------------------------------------------- what identifiers refer to
+
+_ID = re.compile(r"\b[A-Za-z][A-Za-z0-9]*(?:-[A-Za-z0-9]+)+\b")
+ID_KEYS = ("doc_id", "host", "alert_id", "asset", "asset_id", "hotel_id", "flight_id", "ticket_id", "request_id", "id")
+SKIP_KEYS = {"text", "body", "summary", "note", "notes", "comment", "comments"}
+
+
+def _strings(v) -> list[str]:
+    if isinstance(v, str):
+        return [v]
+    if isinstance(v, dict):
+        return [x for y in v.values() for x in _strings(y)]
+    if isinstance(v, (list, tuple)):
+        return [x for y in v for x in _strings(y)]
+    return []
+
+
+def known_context(db: DBSession, session_id: str, args: dict) -> dict[str, str]:
+    """Identifiers named in an action that Varuna knows something about: from the company's inventory, or from what a
+    tool returned earlier in this session. Lets "isolate WMS-APP-01" be checked as "isolate the warehouse system"."""
+    ids = {m.upper() for s in _strings(args) for m in _ID.findall(s)}
+    if not ids:
+        return {}
+    out = {r.key: r.text for r in db.scalars(select(KnownResource).where(KnownResource.key.in_(ids)))}
+    for f in db.scalars(select(SessionFact).where(SessionFact.session_id == session_id, SessionFact.key.in_(ids))
+                        .order_by(SessionFact.id)):
+        out[f.key] = f"{out[f.key]}; {f.text}" if f.key in out and f.text not in out[f.key] else out.get(f.key, f.text)
+    return out
+
+
+def enrich(payload: dict, known: dict[str, str]) -> dict:
+    """The payload the rules and the judge see: the agent's own arguments plus what the named identifiers are."""
+    if not known:
+        return payload
+    args = dict(payload.get("args") or {})
+    args["_known"] = "; ".join(f"{k} is {v}" for k, v in known.items())
+    return {**payload, "args": args}
+
+
+def facts_from_output(output) -> dict[str, str]:
+    """Identifier -> description pairs in a tool's output, e.g. {"doc_id": "D-1090", "collection": "HR records"}."""
+    out: dict[str, str] = {}
+
+    def walk(v):
+        if isinstance(v, dict):
+            key = next((str(v[k]) for k in ID_KEYS if isinstance(v.get(k), str) and _ID.fullmatch(str(v[k]))), None)
+            if key:
+                desc = ", ".join(f"{k}: {x}" for k, x in v.items() if k not in ID_KEYS and k not in SKIP_KEYS
+                                 and isinstance(x, (str, int, float)) and str(x))
+                if desc:
+                    out[key.upper()] = desc[:380]
+            for x in v.values():
+                walk(x)
+        elif isinstance(v, (list, tuple)):
+            for x in v:
+                walk(x)
+    walk(output)
+    return out
+
+
+def learn_facts(db: DBSession, session_id: str, tool: str, output) -> None:
+    for k, text in facts_from_output(output).items():
+        if not db.scalar(select(SessionFact.id).where(SessionFact.session_id == session_id, SessionFact.key == k,
+                                                      SessionFact.text == text)):
+            db.add(SessionFact(session_id=session_id, key=k, text=text, tool=tool))
+
+
 # ----------------------------------------------------------------- company policy
 
 def active_company(db: DBSession) -> CompanyPolicy | None:
@@ -154,10 +223,11 @@ def ensure_session(db: DBSession, agent: Agent, session_id: str | None, label: s
     return s
 
 
-def build_history(db: DBSession, session_id: str, kinds: dict[str, str]) -> list[HistoryItem]:
-    rows = db.execute(
-        select(Event, Assessment).join(Assessment, Assessment.event_id == Event.id)
-        .where(Event.session_id == session_id).order_by(Event.seq.desc()).limit(60)).all()
+def build_history(db: DBSession, session_id: str, kinds: dict[str, str], exclude_event: int | None = None) -> list[HistoryItem]:
+    q = select(Event, Assessment).join(Assessment, Assessment.event_id == Event.id).where(Event.session_id == session_id)
+    if exclude_event:
+        q = q.where(Event.id != exclude_event)
+    rows = db.execute(q.order_by(Event.seq.desc()).limit(60)).all()
     items = []
     for ev, a in reversed(rows):
         p = ev.payload or {}
@@ -166,7 +236,7 @@ def build_history(db: DBSession, session_id: str, kinds: dict[str, str]) -> list
         is_call = ev.type == "tool_call"
         items.append(HistoryItem(
             type=ev.type, tool=tool, args_hash=args_hash(tool, args) if is_call else None, kind=kinds.get(tool or ""),
-            amount=amount_of(args) if is_call else None, count=count_of(args) if is_call else None,
+            amount=(p.get("actual_amount") or amount_of(args)) if is_call else None, count=count_of(args) if is_call else None,
             verdict=a.verdict, deviation=a.deviation, band=a.band, hit_ids=[h["id"] for h in (a.rule_hits or [])],
             ts=aware(ev.ts)))
     return items
@@ -224,7 +294,8 @@ def _assess_call(db: DBSession, agent: Agent, sess: Session, ev: Event, tool: st
 
     hist = [h for h in build_history(db, sess.id, kinds)]
     judge = get_sync_judge() if high else heuristic()
-    scored = engine.score_event("tool_call", ev.payload, charter=ctx.charter, tools=ctx.tools,
+    known = known_context(db, sess.id, args)
+    scored = engine.score_event("tool_call", enrich(ev.payload, known), charter=ctx.charter, tools=ctx.tools,
                                 risk_factors=ctx.risk_factors, internal_domains=agent.internal_domains or [],
                                 tainted=sess.tainted, history=hist, now=now,
                                 thresholds=ctx.policy.thresholds, judge=judge, company=ctx.company)
@@ -277,6 +348,8 @@ def _assess_call(db: DBSession, agent: Agent, sess: Session, ev: Event, tool: st
                   f"{scored.deviation:.0f}. Ask the agent owner for an exception if this is legitimate.")
     if enforce:
         scored.explain["mode"] = "enforce"
+    if known:
+        scored.explain["known"] = known
     if ctx.company_version:
         scored.explain["company_policy_version"] = ctx.company_version
 
@@ -366,6 +439,8 @@ def handle_trace_event(db: DBSession, agent: Agent, etype: str, payload: dict, *
     sess.last_event_at = now
     agent.last_seen = now
     out = {"event_id": ev.id, "session_id": sess.id}
+    if etype == "tool_result":
+        learn_facts(db, sess.id, str(payload.get("tool", "")), payload.get("output"))
     if etype in ("thought", "tool_result"):
         hist = build_history(db, sess.id, kinds)
         scored = engine.score_event(etype, payload, charter=ctx.charter, tools=ctx.tools, risk_factors=ctx.risk_factors,
@@ -373,6 +448,13 @@ def handle_trace_event(db: DBSession, agent: Agent, etype: str, payload: dict, *
                                     now=now, thresholds=ctx.policy.thresholds, judge=heuristic(), company=ctx.company)
         if etype == "tool_result" and any(h["id"] == "R-INJ-01" for h in scored.hits):
             sess.tainted = True
+        if etype == "tool_result" and payload.get("call_event_id"):
+            spent = _check_spend(db, agent, ctx, sess, int(payload["call_event_id"]), payload.get("output"), now)
+            if spent and band_rank(spent.band) >= band_rank(scored.band):
+                scored = spent
+                c = spent.explain["charged"]
+                ev.summary = (f"{payload.get('tool')} charged ${c['actual']:,.0f}, "
+                              f"more than the ${c['declared']:,.0f} declared")[:400]
         a = Assessment(event_id=ev.id, agent_id=agent.id, session_id=sess.id, ts=now, deviation=scored.deviation,
                        risk=scored.risk, decision_score=scored.decision_score, band=scored.band, verdict="allow",
                        enforceable=False, likelihoods=scored.likelihoods, rule_hits=scored.hits, patterns=[],
@@ -381,12 +463,61 @@ def handle_trace_event(db: DBSession, agent: Agent, etype: str, payload: dict, *
         db.add(a)
         sess.max_risk = max(sess.max_risk, scored.risk)
         sess.max_deviation = max(sess.max_deviation, scored.deviation)
-        label_ = "untrusted content with instructions" if etype == "tool_result" else "intent signal"
+        label_ = ("untrusted content with instructions" if etype == "tool_result" else "intent signal") \
+            if not scored.explain.get("charged") else "charged more than declared"
         _alerts(db, agent, ctx, sess, ev, scored, "allow", source, label_)
         out.update({"band": scored.band, "deviation": scored.deviation, "risk": scored.risk})
     db.flush()
     bus.publish("assessment", {"agent_id": agent.id, "session_id": sess.id, "event_id": ev.id})
     return out
+
+
+CHARGE_KEYS = ("charged", "amount", "price", "total")
+
+
+def _charged(output) -> float | None:
+    if not isinstance(output, dict):
+        return None
+    for k in CHARGE_KEYS:
+        try:
+            if output.get(k) is not None:
+                return float(str(output[k]).replace("$", "").replace(",", ""))
+        except ValueError:
+            continue
+    return None
+
+
+def _check_spend(db: DBSession, agent: Agent, ctx: AgentCtx, sess: Session, call_id: int, output, now) -> Scored | None:
+    """After a payment has run: if the system charged more than the agent declared, judge the real amount (limits
+    included) and record it, so later limits count what was actually spent. It can't be undone, so it alerts."""
+    call = db.get(Event, call_id)
+    if call is None or call.type != "tool_call" or call.session_id != sess.id:
+        return None
+    p = call.payload or {}
+    meta = next((t for t in ctx.tools if t["name"] == p.get("tool")), None) or {}
+    if meta.get("kind") != "payment":
+        return None
+    declared = amount_of(p.get("args") or {}) or 0.0
+    actual = _charged(output)
+    if actual is None or actual <= declared + 0.5:
+        return None
+    call.payload = {**p, "actual_amount": actual}  # later limits count what was really spent
+    kinds = {t["name"]: t.get("kind", "") for t in ctx.tools}
+    hist = build_history(db, sess.id, kinds, exclude_event=call_id)
+    args = {k: v for k, v in (p.get("args") or {}).items() if k.lower() not in ("amount", "price", "total", "cost", "fare")}
+    scored = engine.score_event("tool_call", {"tool": p.get("tool"), "args": {**args, "amount": actual}}, charter=ctx.charter,
+                                tools=ctx.tools, risk_factors=ctx.risk_factors, internal_domains=agent.internal_domains or [],
+                                tainted=sess.tainted, history=hist, now=now, thresholds=ctx.policy.thresholds,
+                                judge=heuristic(), company=ctx.company)
+    mismatch = {"id": "R-AMT-03", "category": "financial", "strength": 0.7, "dev_floor": 70,
+                "text": f"The agent declared ${declared:,.0f} but the system charged ${actual:,.0f}"}
+    scored.hits = [mismatch] + scored.hits
+    scored.deviation = max(scored.deviation, 70.0)
+    scored.decision_score = round(decision_score(scored.risk, scored.deviation), 1)
+    scored.band = band_for(scored.decision_score, ctx.policy.thresholds)
+    scored.explain["deviation_reason"] = mismatch["text"] + ". " + scored.explain.get("deviation_reason", "")
+    scored.explain["charged"] = {"declared": declared, "actual": actual, "call_event_id": call_id}
+    return scored
 
 
 def deep_review(db: DBSession, event_id: int) -> None:

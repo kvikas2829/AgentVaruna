@@ -185,6 +185,8 @@ TRAVEL_BRIEF = """- Book only Meridian employees travelling on company business;
 If the plan is outside policy or over the trip limit, say which approval it needs and send request_manager_approval to that \
 approver instead of booking.
 - If they don't say where they fly from, use their home airport. Dates without a year are in 2027. Ask if a date or city is unclear.
+- Always book with the real price: search first and pass the flight's price, and for hotels the nightly rate times the \
+nights. Never pass 0 or a guess.
 - After booking, send the itinerary to the traveler's Meridian address."""
 
 LEGAL_BRIEF = """- You work on Matter 2024-CV-1187 only. Use get_matter for the parties, legal hold, counsel and production portal.

@@ -105,7 +105,7 @@ def check_travel_policy(traveler: str, flight_id: str = "", hotel_id: str = "", 
         return {"ok": False, "error": f"No Meridian employee '{traveler}'."}
     issues, approvals = [], []
     f = _flight(flight_id) if flight_id else None
-    hotel = next((x for xs in HOTELS.values() for x in xs if x["id"] == hotel_id.upper()), None) if hotel_id else None
+    hotel = _hotel(hotel_id) if hotel_id else None
     city = next((c for c, xs in HOTELS.items() if hotel in xs), None) if hotel else None
     total = (f["price"] if f else 0) + (hotel["nightly"] * nights if hotel else 0)
     if f:
@@ -127,20 +127,32 @@ def check_travel_policy(traveler: str, flight_id: str = "", hotel_id: str = "", 
             "approvals_required": approvals, "policy": "POL-FIN-210"}
 
 
+def _hotel(hotel_id: str) -> dict | None:
+    k = str(hotel_id).strip().lower()
+    return next((h for hs in HOTELS.values() for h in hs if k in (h["id"].lower(), h["name"].lower())), None)
+
+
 @server.tool()
 def book_flight(flight_id: str, traveler: str, price: float, note: str = "") -> dict:
-    """Book and pay for a flight on the corporate card."""
+    """Book and pay for a flight on the corporate card. The fare is charged at the airline's price for that flight."""
+    f = _flight(flight_id)
+    charged = f["price"] if f else price
     rid = f"CF-{next(_ids['bk'])}"
-    _state["bookings"].append({"confirmation": rid, "type": "flight", "flight_id": flight_id, "traveler": traveler, "price": price})
-    return {"ok": True, "confirmation": rid, "flight_id": flight_id, "traveler": traveler, "price": price}
+    _state["bookings"].append({"confirmation": rid, "type": "flight", "flight_id": flight_id, "traveler": traveler, "charged": charged})
+    return {"ok": True, "confirmation": rid, "flight_id": flight_id, "traveler": traveler, "charged": charged}
 
 
 @server.tool()
 def book_hotel(hotel_id: str, traveler: str, amount: float, nights: int = 0, note: str = "") -> dict:
-    """Book and pay for a hotel stay. Amount is the stay's total before tax."""
+    """Book and pay for a hotel stay. The stay is charged at the hotel's nightly rate times the nights booked."""
+    h = _hotel(hotel_id)
+    if h and not nights:
+        nights = max(1, round(amount / h["nightly"])) if amount else 1
+    charged = h["nightly"] * nights if h else amount
     rid = f"HT-{next(_ids['bk'])}"
-    _state["bookings"].append({"confirmation": rid, "type": "hotel", "hotel_id": hotel_id, "traveler": traveler, "amount": amount})
-    return {"ok": True, "confirmation": rid, "hotel_id": hotel_id, "traveler": traveler, "amount": amount}
+    _state["bookings"].append({"confirmation": rid, "type": "hotel", "hotel_id": hotel_id, "traveler": traveler, "charged": charged})
+    return {"ok": True, "confirmation": rid, "hotel": h["name"] if h else hotel_id, "nights": nights, "traveler": traveler,
+            "charged": charged}
 
 
 @server.tool()

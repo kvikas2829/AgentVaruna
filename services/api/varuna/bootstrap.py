@@ -8,11 +8,14 @@ from varuna_demo.registry import SPECS
 
 from . import services
 from .compiler import heuristic
-from .models import Agent, Charter, CompanyPolicy, RiskFactor
+from .models import Agent, Charter, CompanyPolicy, KnownResource, RiskFactor
 from .security import new_agent_key
 
 
 def bootstrap(db: DBSession) -> None:
+    if db.scalar(select(KnownResource.key).limit(1)) is None:
+        for k, text in company.known_resources().items():
+            db.add(KnownResource(key=k.upper(), text=text[:400], source="Meridian inventory"))
     if db.scalar(select(CompanyPolicy.id).limit(1)) is None:
         tools = [t for spec in SPECS.values() for t in spec["tools"]]
         db.add(CompanyPolicy(version=1, status="active", source_text=company.COMPANY_POLICY_TEXT,

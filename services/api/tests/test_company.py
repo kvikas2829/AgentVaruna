@@ -5,7 +5,7 @@ from sqlalchemy import select
 from conftest import sdk
 from varuna import db as dbm, services
 from varuna.compiler.heuristic import compile_company_policy
-from varuna.models import Agent, Approval, Assessment, CompanyPolicy, Incident
+from varuna.models import Agent, Approval, Assessment, CompanyPolicy, Event, Incident
 from varuna.scoring.judge import JudgeContext, build_prompt
 from varuna_demo.meridian import company as co
 from varuna_demo.registry import SPECS
@@ -158,3 +158,74 @@ def test_mode_api(client):
     agents = {a["id"]: a for a in client.get("/v1/agents").json()}
     assert agents["agt_legal"]["mode"] == "observe" and agents["agt_legal"]["mode_override"] is None
     assert client.get("/v1/meta").json()["mode"]["default"] == "observe"
+
+
+# ---------------------------------------------------------------- IDs Varuna recognises, and amounts it doesn't take on trust
+
+def test_ids_alone_are_recognised_from_the_inventory(fresh_db):
+    v = sdk("agt_legal").guard("read_document", {"doc_id": "D-1090", "matter_id": "2024-CV-1187"})      # no "HR records" in the call
+    assert v.verdict == "block" and "HR records" in v.reason
+    w = sdk("agt_soc").guard("isolate_host", {"host": "WMS-APP-01"})                                  # no role given
+    assert w.verdict == "hold" and "Warehouse management system" in w.reason
+    assert sdk("agt_soc").guard("isolate_host", {"host": "WS-114", "reason": "Qakbot"}).verdict == "allow"   # ordinary laptop
+    with dbm.session_scope() as db:
+        a = db.scalar(select(Assessment).where(Assessment.event_id == v.event_id))
+        assert "D-1090" in a.explain["known"]
+        ev = db.get(Event, v.event_id)
+        assert "_known" not in ev.payload["args"]                                                  # the agent's call is stored as made
+
+
+def test_known_descriptions_do_not_trip_phrase_checks(fresh_db):
+    # D-1051's description mentions email; tagging it privileged must stay routine
+    v = sdk("agt_legal").guard("tag_document", {"doc_id": "D-1051", "tag": "privileged", "matter_id": "2024-CV-1187"})
+    assert v.verdict == "allow" and v.band == "observe"
+
+
+def test_ids_are_learned_from_tool_results(fresh_db):
+    c = sdk("agt_legal")
+    first = c.guard("search_documents", {"query": "drivers", "matter_id": "2024-CV-1187"})
+    assert c.guard("read_document", {"doc_id": "X-777", "matter_id": "2024-CV-1187"}).verdict == "allow"   # unknown yet
+    c.result("search_documents", True, {"hits": [{"doc_id": "X-777", "title": "Driver file", "collection": "HR records"}]},
+             first.event_id)
+    v = c.guard("read_document", {"doc_id": "X-777", "matter_id": "2024-CV-1187"})
+    assert v.verdict == "block" and "HR records" in v.reason
+
+
+def test_payment_without_an_amount_is_held(fresh_db):
+    v = sdk("agt_travel").guard("book_hotel", {"hotel_id": "The Langham", "traveler": "Alex Rivera", "amount": 0, "nights": 3})
+    assert v.verdict == "hold" and "no amount stated" in v.reason
+
+
+def test_charged_more_than_declared_raises_an_incident_and_counts(fresh_db):
+    from varuna_demo.meridian import travel
+    c = sdk("agt_travel")
+    f = c.guard("book_flight", {"flight_id": "DL412", "traveler": "Alex Rivera", "price": 612})
+    c.result("book_flight", True, travel.book_flight("DL412", "Alex Rivera", 612), f.event_id)
+    h = c.guard("book_hotel", {"hotel_id": "LG-552", "traveler": "Alex Rivera", "amount": 300, "nights": 3})  # under-declared
+    assert h.verdict == "allow"                                                     # $912 declared: within every limit
+    out = travel.book_hotel("LG-552", "Alex Rivera", 300, 3)
+    assert out["charged"] == 1650                                                   # the stub charges the real rate
+    c.result("book_hotel", True, out, h.event_id)
+    with dbm.session_scope() as db:
+        inc = db.scalar(select(Incident))
+        assert inc is not None and "charged $1,650, more than the $300 declared" in inc.title
+        call = db.get(Event, h.event_id)
+        assert call.payload["actual_amount"] == 1650
+        res = db.scalars(select(Assessment).where(Assessment.enforceable.is_(False)).order_by(Assessment.id.desc())).first()
+        assert res.rule_hits[0]["id"] == "R-AMT-03" and any(x["id"] == "CO-AMT-01" for x in res.rule_hits)
+    # the next booking counts the $1,650 actually spent, not the $300 declared
+    n = c.guard("book_hotel", {"hotel_id": "CY-104", "traveler": "Alex Rivera", "amount": 265, "nights": 1})
+    assert n.verdict != "allow" and "with earlier bookings" in n.reason
+
+
+def test_booking_stubs_charge_catalog_prices():
+    from varuna_demo.meridian import travel
+    travel.reset()
+    assert travel.book_flight("DL412", "A", price=0)["charged"] == 612
+    assert travel.book_hotel("The Langham", "A", amount=0, nights=3)["charged"] == 1650
+    assert travel.book_hotel("HX-218", "A", amount=1020)["charged"] == 1020                       # nights inferred: 3
+
+
+def test_known_resources_api(client):
+    rows = {r["key"]: r["text"] for r in client.get("/v1/company/resources").json()}
+    assert "warehouse management system" in rows["WMS-APP-01"] and "HR records" in rows["D-1090"]

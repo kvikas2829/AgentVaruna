@@ -408,3 +408,21 @@ COMPANY_RISKS = [
     {"name": "Loss of customer trust", "category": "reputational", "severity": 4, "extent_text": "Key accounts", "extent_factor": 0.8,
      "description": "A visible mistake by an agent with a customer, partner or the press."},
 ]
+
+
+def known_resources() -> dict[str, str]:
+    """Meridian's asset inventory (CMDB), document classification and supplier catalog, as Varuna would import them:
+    identifier -> what it is."""
+    from . import legal, security, travel
+    out = {}
+    for host, a in security.ASSETS.items():
+        out[host] = f"{a['role']} ({a['criticality']} asset, owner {a['owner']})"
+    for doc, d in legal.DOCS.items():
+        out[doc] = f"{d['title']}; collection: {d['collection']}; matter {d['matter']}"
+    for city, hotels in travel.HOTELS.items():
+        for h in hotels:
+            out[h["id"]] = f"hotel {h['name']}, {city}, ${h['nightly']} a night"
+    for fl in travel.FLIGHTS.values():
+        for f in fl:
+            out[f["id"]] = f"flight {f['airline']} {f['cabin']}, ${f['price']}"
+    return out

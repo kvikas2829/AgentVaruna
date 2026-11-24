@@ -2020,10 +2020,10 @@
     }
    ],
    "min_band": "slow",
-   "worst_band": "block",
+   "worst_band": "slow",
    "verdicts": [
     "hold",
-    "block"
+    "hold"
    ],
    "ok": true
   },

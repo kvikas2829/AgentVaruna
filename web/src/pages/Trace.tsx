@@ -83,6 +83,8 @@ export default function Trace({ sessionId }: { sessionId?: string }) {
               {tab === "why" && (
                 <div className="stack">
                   <div className="why"><b>Decision</b><span>{a.reason || "Allowed."}</span></div>
+                  {a.explain?.known && <div className="why"><b>Recognised</b><span>{Object.entries(a.explain.known).map(([k, v]) => `${k}: ${v}`).join(" · ")}</span></div>}
+                  {a.explain?.charged && <div className="why"><b>Charged</b><span>Declared ${Math.round(a.explain.charged.declared).toLocaleString()}, charged ${Math.round(a.explain.charged.actual).toLocaleString()}. Later limits count the charged amount.</span></div>}
                   {!!a.explain?.company_policy?.length && <div className="why"><b>Company policy</b><span>{a.explain.company_policy.join(" ")}{a.explain.company_policy_version ? ` (company policy v${a.explain.company_policy_version})` : ""}</span></div>}
                   {a.explain?.deviation_reason && <div className="why"><b>Deviation {Math.round(a.deviation)}</b><span>{a.explain.deviation_reason}</span></div>}
                   {a.explain?.risk_reason && <div className="why"><b>Risk {Math.round(a.risk)}</b><span>{a.explain.risk_reason}</span></div>}

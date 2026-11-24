@@ -40,6 +40,15 @@ def protected_match(args: dict, tool_meta: dict, targets: list[str]) -> str | No
     return None
 
 
+def split_known(args: dict) -> tuple[dict, str]:
+    """Separates Varuna's own note on what named identifiers are ("_known") from the agent's arguments. The note is
+    used only to recognise resources (forbidden or protected); phrase checks read the agent's own words."""
+    if "_known" not in (args or {}):
+        return args or {}, ""
+    a = dict(args)
+    return a, str(a.pop("_known"))
+
+
 def amount_of(args: dict) -> float | None:
     best = None
     for k, v in (args or {}).items():
@@ -106,7 +115,7 @@ def evaluate(event_type: str, payload: dict, charter: dict, tool_meta: dict | No
         return hits
 
     tool = str(payload.get("tool", ""))
-    args = payload.get("args") or {}
+    args, known = split_known(payload.get("args") or {})
     meta = tool_meta or {}
     kind = meta.get("kind")
     blob = flatten(args)
@@ -118,7 +127,7 @@ def evaluate(event_type: str, payload: dict, charter: dict, tool_meta: dict | No
                         f"'{tool}' is not one of the actions this charter expects"))
 
     # forbidden resources
-    hay = norm(" ".join([tool, str(meta.get("resource", "")), " ".join(str(v) for v in args.values() if isinstance(v, (str, int)))]))
+    hay = norm(" ".join([tool, str(meta.get("resource", "")), known, " ".join(str(v) for v in args.values() if isinstance(v, (str, int)))]))
     for res in charter.get("forbidden_resources", []) or []:
         r = norm(res)
         if r and r in hay:
@@ -161,7 +170,7 @@ def evaluate(event_type: str, payload: dict, charter: dict, tool_meta: dict | No
     # protected targets: privileged changes to things that need a person's approval first
     targets = [str(t) for t in (limits.get("protected_targets") or [])]
     if targets and kind in ("admin", "delete"):
-        hit = protected_match(args, meta, targets)
+        hit = protected_match({**args, "_known": known} if known else args, meta, targets)
         if hit:
             hits.append(Hit("R-PROT-01", "operational", 0.8, 82, f"Changes a protected target ({hit}), which needs approval first"))
 
@@ -198,13 +207,16 @@ def evaluate_company(event_type: str, payload: dict, company: dict, tool_meta: d
     if event_type != "tool_call" or not company:
         return []
     tool = str(payload.get("tool", ""))
-    args = payload.get("args") or {}
+    args, known = split_known(payload.get("args") or {})
     meta = tool_meta or {}
     kind = meta.get("kind")
     limits = company.get("limits") or {}
     hits: list[Hit] = []
 
     amt = amount_of(args)
+    if kind == "payment" and (amt is None or amt <= 0) and limits.get("amount_rules"):
+        hits.append(Hit("R-AMT-02", "financial", 0.6, 95,  # held: a limit that can't be checked is not a limit
+                        "Payment with no amount stated, so spending limits can't be checked. State the price and try again"))
     for r in limits.get("amount_rules") or []:
         if kind not in (None, "payment") or amt is None or not _in_scope(r.get("scope") or [], tool, meta, args):
             continue
@@ -219,14 +231,14 @@ def evaluate_company(event_type: str, payload: dict, company: dict, tool_meta: d
             what = f"${amt:,.0f}" + (f" (${total:,.0f} with earlier bookings)" if prior else "")
             hits.append(Hit("CO-AMT-01", "financial", 0.8 + 0.2 * over, 76 + 10 * over,
                             f"Company policy: {r['text']}. This action is {what}, over ${cap:,.0f}"))
-    hay = norm(" ".join([tool, str(meta.get("resource", "")), " ".join(str(v) for v in args.values() if isinstance(v, (str, int)))]))
+    hay = norm(" ".join([tool, str(meta.get("resource", "")), known, " ".join(str(v) for v in args.values() if isinstance(v, (str, int)))]))
     for res in company.get("forbidden_resources") or []:
         if norm(res) and norm(res) in hay:
             hits.append(Hit("CO-FORB-01", "legal", 0.9, 92, f"Company policy: agents must never touch {res}"))
             break
     targets = [str(t) for t in (limits.get("protected_targets") or [])]
     if targets and kind in ("admin", "delete"):
-        hit = protected_match(args, meta, targets)
+        hit = protected_match({**args, "_known": known} if known else args, meta, targets)
         if hit:
             hits.append(Hit("CO-PROT-01", "operational", 0.85, 95,  # deviation alone puts it at hold
                             f"Company policy: changes a critical system ({hit}), which needs change advisory board approval"))

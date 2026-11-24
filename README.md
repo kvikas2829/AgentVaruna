@@ -34,7 +34,7 @@ Sign in with `admin` / `varuna`. The first start generates labeled sample histor
 | `VARUNA_DATA_DIR` | `./data` | SQLite location. |
 | `VARUNA_SEED` | `1` | `0` skips sample history. |
 
-Development: `make test` (105 tests), `make eval` (writes `eval/report.md`), `eval/compare_judges.py <model> ...` (compares judges on `eval/judge_cases.py`, writes `eval/judge_report.md`), `cd web && npm run dev` (proxies `/v1` to :8000).
+Development: `make test` (112 tests), `make eval` (writes `eval/report.md`), `eval/compare_judges.py <model> ...` (compares judges on `eval/judge_cases.py`, writes `eval/judge_report.md`), `cd web && npm run dev` (proxies `/v1` to :8000).
 
 ## Company policy, risks and modes
 
@@ -43,6 +43,11 @@ stricter wins, so a charter that allows more cannot switch a company rule off, a
 company policy is plain English, compiled into spending limits scoped by topic (for example a $2,000 limit on trips), systems
 that are off limits to every agent, and critical systems whose changes need approval; the model judge also reads the full text.
 Saving it creates a new version. Risks with no agents attached form the company risk register and count for every agent.
+
+Varuna doesn't take an action's wording on trust. It knows what identifiers refer to, from the company's inventories
+(Company policy page) and from what tools return during a session, so "isolate WMS-APP-01" is checked as isolating the
+warehouse system. A payment with no amount is held, because limits can't be checked. If the system charges more than the
+agent declared, Varuna raises an incident and counts the real amount toward later limits.
 
 Settings has an observation or enforcement switch for the company, with a per-agent override. Enforcing, each action waits
 for its verdict and can be slowed, held or blocked. Observing, `/v1/guard` answers `allow` at once, and Varuna scores the

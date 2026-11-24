@@ -69,7 +69,8 @@ def score_event(event_type: str, payload: dict, *, charter: dict, tools: list[di
         # A phrase match is deterministic, so it should not be diluted by the softer semantic and drift terms.
         floor = max(floor, 0.8 * jr.deviation)
     if event_type in ("tool_call", "thought"):
-        ev_text = (tool + " " + flatten(args)) if event_type == "tool_call" else str(payload.get("text", ""))
+        own = {k: v for k, v in args.items() if k != "_known"}
+        ev_text = (tool + " " + flatten(own)) if event_type == "tool_call" else str(payload.get("text", ""))
         intent = intent_text(charter, tools)
         sim = cosine(ev_text, intent, corpus=[ev_text]) if intent else 0.0
         sem = 100 * (1 - min(1.0, 2.5 * sim)) if intent else 30.0

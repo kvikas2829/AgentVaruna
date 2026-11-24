@@ -87,7 +87,8 @@ class HeuristicJudge:
         elif ctx.event_type == "tool_result":
             return JudgeResult(0, {}, "Tool output checked by rules only.", self.name)
         else:
-            text = f"{ctx.payload.get('tool', '')} {flatten(ctx.payload.get('args'))}"
+            args = {k: v for k, v in (ctx.payload.get("args") or {}).items() if k != "_known"}  # the agent's words only
+            text = f"{ctx.payload.get('tool', '')} {flatten(args)}"
         lik: dict[str, float] = {}
         dev = 3.0
         notes: list[str] = []

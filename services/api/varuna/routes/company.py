@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session as DBSession
 
 from .. import compiler, services
 from ..db import get_db
-from ..models import Agent, CompanyPolicy
+from ..models import Agent, CompanyPolicy, KnownResource
 from ..security import admin_user
 from ..streams import bus
 from ..utils import iso
@@ -65,6 +65,12 @@ def activate_policy(version: int, db: DBSession = Depends(get_db)):
         p.status = "archived"
     target.status = "active"
     return policy_dict(target)
+
+
+@router.get("/company/resources")
+def known_resources(db: DBSession = Depends(get_db)):
+    """What Varuna knows identifiers refer to, imported from the company's inventories."""
+    return [{"key": r.key, "text": r.text, "source": r.source} for r in db.scalars(select(KnownResource).order_by(KnownResource.key))]
 
 
 class ModeIn(BaseModel):
