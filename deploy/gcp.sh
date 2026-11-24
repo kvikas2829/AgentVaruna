@@ -4,14 +4,17 @@
 #
 #   PROJECT_ID=varuna-demo-1234 BILLING_ACCOUNT=XXXXXX-XXXXXX-XXXXXX deploy/gcp.sh
 #
-# Optional: REGION (default us-central1), GCLOUD_CONFIG (default varuna-demo), SKIP_MODEL_BUILD=1 to reuse the model image.
+# Optional: REGION for the services (default europe-west4, where new projects get Cloud Run L4 GPU quota; us-central1
+# had none), IMAGE_REGION for the image repository (default us-central1), GCLOUD_CONFIG (default varuna-demo),
+# SKIP_MODEL_BUILD=1 to reuse the model image.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 : "${PROJECT_ID:?set PROJECT_ID}"
-REGION="${REGION:-us-central1}"
+REGION="${REGION:-europe-west4}"
+IMAGE_REGION="${IMAGE_REGION:-us-central1}"
 export CLOUDSDK_ACTIVE_CONFIG_NAME="${GCLOUD_CONFIG:-varuna-demo}"
-REPO="$REGION-docker.pkg.dev/$PROJECT_ID/varuna"
+REPO="$IMAGE_REGION-docker.pkg.dev/$PROJECT_ID/varuna"
 MODEL_IMAGE="$REPO/ollama-qwen3-14b:0.40.16"
 APP_IMAGE="$REPO/varuna-app:$(git rev-parse --short HEAD)"
 APP_SA="varuna-app@$PROJECT_ID.iam.gserviceaccount.com"
@@ -23,7 +26,7 @@ if ! gcloud projects describe "$PROJECT_ID" >/dev/null 2>&1; then
   gcloud projects create "$PROJECT_ID" --name="Varuna demo"
 fi
 gcloud config set project "$PROJECT_ID" >/dev/null
-if [ -n "${BILLING_ACCOUNT:-}" ]; then
+if [ -n "${BILLING_ACCOUNT:-}" ] && [ "$(gcloud billing projects describe "$PROJECT_ID" --format='value(billingEnabled)')" != "True" ]; then
   gcloud billing projects link "$PROJECT_ID" --billing-account="$BILLING_ACCOUNT" >/dev/null
 fi
 
@@ -31,8 +34,8 @@ step "APIs"
 gcloud services enable run.googleapis.com artifactregistry.googleapis.com cloudbuild.googleapis.com iam.googleapis.com
 
 step "Image repository"
-gcloud artifacts repositories describe varuna --location="$REGION" >/dev/null 2>&1 ||
-  gcloud artifacts repositories create varuna --repository-format=docker --location="$REGION"
+gcloud artifacts repositories describe varuna --location="$IMAGE_REGION" >/dev/null 2>&1 ||
+  gcloud artifacts repositories create varuna --repository-format=docker --location="$IMAGE_REGION"
 
 if [ -z "${SKIP_MODEL_BUILD:-}" ]; then
   step "Model image (Qwen3 14B built in, ~10 GB; takes a while)"
