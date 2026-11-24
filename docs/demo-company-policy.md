@@ -12,6 +12,8 @@ Every example below was checked against the running rules on 2026-11-24.
 - **Settings → Observation or enforcement: choose Enforce** for these demos. In Observe only, every action goes through
   and the results show as "Would have blocked" or "Would have held" instead (see the observation demo at the end).
 - Go to **Demo sandbox**, pick the agent, and set **Chatting as** to the person listed.
+- Each scenario button starts a new conversation. Varuna adds up spending across a conversation as one trip, so
+  typed follow-ups continue the current one, and their bookings count toward the same trip limit.
 - Watch the **Varuna is watching** panel on the right. Click any action to open the trace; the **Explain** tab shows a
   **Company policy** line naming the rule that applied, and the **Rules** tab shows `CO-…` rules (company) as opposed
   to `R-…` rules (the agent's charter).

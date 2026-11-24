@@ -27,12 +27,15 @@ export default function Demo({ agentKey }: { agentKey?: string }) {
   }, [key]);
   useEffect(() => { end.current?.scrollIntoView({ block: "end" }); }, [msgs]);
 
-  const send = async (message: string) => {
+  /** Scenario buttons start a fresh conversation, so one story's bookings or approvals never carry into the next. */
+  const send = async (message: string, fresh = false) => {
     if (!message.trim() || !key || busy) return;
     setBusy(true); setText("");
-    setMsgs((m) => [...m, { role: "user", text: message }]);
+    const session = fresh ? null : sid;
+    if (fresh) { setSid(null); if (key) store(key, null); }
+    setMsgs((m) => [...(fresh ? [] : m), { role: "user", text: message }]);
     try {
-      const r = await api(`/v1/demo/${key}/chat`, { body: { message, session_id: sid, as_user: info?.personas?.length ? (asUser || info.default_persona) : undefined } });
+      const r = await api(`/v1/demo/${key}/chat`, { body: { message, session_id: session, as_user: info?.personas?.length ? (asUser || info.default_persona) : undefined } });
       setSid(r.session_id); store(key, r.session_id);
       setMsgs((m) => [...m, ...r.messages.slice(1)]);
       await Promise.all([reloadAgents(), refreshAgents(), reloadWatch()]);
@@ -85,7 +88,8 @@ export default function Demo({ agentKey }: { agentKey?: string }) {
               </select>
             </label>
           )}
-          <div className="pills">{(info?.scenarios || []).map((s: any) => <button key={s.id} className="btn s" disabled={busy} onClick={() => send(s.message)}>{s.label}</button>)}</div>
+          <div className="pills">{(info?.scenarios || []).map((s: any) => <button key={s.id} className="btn s" disabled={busy} onClick={() => send(s.message, true)} title="Starts a new conversation">{s.label}</button>)}</div>
+          <p className="muted small" style={{ margin: "6px 0 0" }}>Each scenario starts a new conversation. Type below to continue the current one.</p>
           <div className="chat" aria-live="polite" style={{ marginTop: 10 }}>
             {!msgs.length && <div className="msg a">{info?.greeting}</div>}
             {msgs.map((m, i) => {
