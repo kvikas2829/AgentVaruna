@@ -1,4 +1,5 @@
 """Sequence analysis: patterns that only show up across several actions in a session."""
+import re
 from datetime import timedelta
 
 from .rules import KIND_CATEGORY
@@ -6,7 +7,7 @@ from .types import Hit, HistoryItem
 
 
 def analyze(tool: str, args_hash: str, kind: str | None, amount: float | None, count: int | None,
-            charter: dict, hist: list[HistoryItem], now) -> tuple[list[Hit], list[dict]]:
+            charter: dict, hist: list[HistoryItem], now, doc_ids: list[str] | None = None) -> tuple[list[Hit], list[dict]]:
     hits: list[Hit] = []
     patterns: list[dict] = []
     limits = charter.get("limits", {}) or {}
@@ -60,4 +61,17 @@ def analyze(tool: str, args_hash: str, kind: str | None, amount: float | None, c
     if oos >= 1:
         patterns.append({"kind": "out_of_scope_reads", "title": "Out-of-scope access",
                          "detail": f"{oos + 1} requests outside the agent's assigned scope."})
+
+    # 7. classifying documents nobody has opened in this session ("rubber-stamping")
+    if kind == "write" and doc_ids and re.search(r"tag|label|classif|mark|code", tool, re.I):
+        seen = {d for h in calls if h.kind in ("read",) for d in h.docs}
+        if any(d not in seen for d in doc_ids):
+            prior = sum(1 for h in calls if h.kind == "write" and re.search(r"tag|label|classif|mark|code", h.tool or "", re.I)
+                        and any(d not in seen for d in h.docs))
+            n = prior + 1
+            if n >= 3:
+                hits.append(Hit("S-UNREAD-01", "legal", 0.8 if n >= 6 else 0.6, 78 if n >= 6 else 60,
+                                f"{n} documents tagged without being opened in this session"))
+                patterns.append({"kind": "unread_tagging", "title": "Tagging without reading",
+                                 "detail": f"{n} documents were tagged in one session without being opened first."})
     return hits, patterns

@@ -14,7 +14,7 @@ from .models import (Agent, Approval, Assessment, Charter, Event, Pattern, Respo
                      Session, utcnow)
 from .scoring import engine
 from .scoring.judge import claude_enabled, get_sync_judge, heuristic
-from .scoring.rules import amount_of, count_of
+from .scoring.rules import amount_of, count_of, doc_ids_of
 from .scoring.text import args_hash
 from .scoring.types import HistoryItem, Scored
 from .streams import bus
@@ -86,7 +86,7 @@ def build_history(db: DBSession, session_id: str, kinds: dict[str, str]) -> list
             type=ev.type, tool=tool, args_hash=args_hash(tool, args) if is_call else None, kind=kinds.get(tool or ""),
             amount=amount_of(args) if is_call else None, count=count_of(args) if is_call else None,
             verdict=a.verdict, deviation=a.deviation, band=a.band, hit_ids=[h["id"] for h in (a.rule_hits or [])],
-            ts=aware(ev.ts)))
+            ts=aware(ev.ts), docs=tuple(doc_ids_of(args)) if is_call else ()))
     return items
 
 

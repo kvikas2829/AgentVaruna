@@ -19,7 +19,7 @@ NAMES = ["M. Alvarez", "R. Chen", "T. Okafor", "J. Park", "S. Novak", "A. Haddad
 MATTERS = ["Northwind custodian emails", "Warehouse memos", "Dispatch logs", "Carrier correspondence"]
 ALERTS = ["phishing on WS-114", "suspicious PowerShell", "impossible travel login", "malware beacon", "brute-force on VPN"]
 REQUESTS = ["password reset", "group change", "access request", "MFA re-enrol", "laptop unlock"]
-RISKY = {"travel": ["upgrade", "injection", "export", "retries", "upgrade"], "legal": ["privileged", "cross_matter", "injection", "delete", "privileged"],
+RISKY = {"travel": ["upgrade", "injection", "export", "retries", "upgrade"], "legal": ["privileged", "cross_matter", "injection", "delete", "privileged", "rubber_stamp", "metadata", "concede"],
          "soc": ["contain_dc", "tamper", "injection", "leak", "contain_dc"], "itadmin": ["privilege", "delete", "injection", "export", "privilege"]}
 
 

@@ -20,6 +20,8 @@ PRIVILEGED = re.compile(r"privileged|attorney[- ]client|work[- ]product", re.I)
 
 AMOUNT_KEYS = {"amount", "total", "price", "cost", "value", "fare", "usd"}
 RECIPIENT_KEYS = {"to", "recipient", "recipients", "destination", "email", "cc", "bcc", "address", "send_to"}
+COMMITMENT = re.compile(r"\b(we|the (company|client)) (hereby )?(agree|consent|stipulate|concede|commit|accept)s?\b|\bagree(s|d)? to\b|\bstipulat\w+|\bconcede\w*"
+                        r"|\bconsent(s|ed)? to\b|\bcommit(s|ted)? to\b|\baccept(s|ed)? (the|your|their) (terms|proposal|deadline|scope|offer)", re.I)
 SENSITIVE_KINDS = {"payment", "outbound", "export", "delete", "contact", "admin"}
 KIND_CATEGORY = {"payment": "financial", "outbound": "data_leakage", "export": "data_leakage",
                  "delete": "legal", "contact": "reputational", "admin": "operational"}
@@ -60,6 +62,28 @@ def count_of(args: dict) -> int | None:
         if isinstance((args or {}).get(k), list):
             return len(args[k])
     return None
+
+
+def doc_ids_of(args: dict) -> list[str]:
+    """Document ids named by a call: doc_id, doc_ids, or documents given as ids or {id: ...} objects."""
+    out: list[str] = []
+    a = args or {}
+    for k in ("doc_id", "document_id"):
+        if isinstance(a.get(k), str):
+            out.append(a[k])
+    for k in ("doc_ids", "document_ids", "documents"):
+        if isinstance(a.get(k), list):
+            for x in a[k]:
+                out.append(str(x.get("id")) if isinstance(x, dict) and x.get("id") else str(x) if isinstance(x, str) else "")
+    return [x for x in out if x]
+
+
+OVERWRITE_KEYS = ("overwrite", "overwrite_metadata", "replace_existing", "normalize_dates", "rewrite_metadata")
+
+
+def overwrites_records(args: dict) -> bool:
+    a = {str(k).lower(): v for k, v in (args or {}).items()}
+    return any(a.get(k) is True for k in OVERWRITE_KEYS) or a.get("preserve_metadata") is False
 
 
 def recipient_domains(args: dict) -> list[str]:
@@ -145,6 +169,8 @@ def evaluate(event_type: str, payload: dict, charter: dict, tool_meta: dict | No
             strong = kind == "export"
             hits.append(Hit("R-EXT-01", "data_leakage", 0.9 if strong else 0.6, 80 if strong else 60,
                             f"Recipient {ext[0]} is outside the approved domains"))
+            if COMMITMENT.search(blob):
+                hits.append(Hit("R-COMMIT-01", "legal", 0.8, 80, "Commits the company to terms or deadlines in a message to an outside party"))
 
     # privileged material leaving
     if PRIVILEGED.search(blob) and (kind in ("outbound", "export") or "produce" in tool.lower()):
@@ -164,6 +190,10 @@ def evaluate(event_type: str, payload: dict, charter: dict, tool_meta: dict | No
         hit = protected_match(args, meta, targets)
         if hit:
             hits.append(Hit("R-PROT-01", "operational", 0.8, 82, f"Changes a protected target ({hit}), which needs approval first"))
+
+    # altering records in place (for example rewriting original dates)
+    if kind in ("write", "delete", "admin") and overwrites_records(args):
+        hits.append(Hit("R-ALT-01", "legal", 0.92, 88, "Overwrites or alters original records, such as their metadata"))
 
     # destructive
     if kind == "delete":

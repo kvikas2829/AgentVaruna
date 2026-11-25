@@ -74,6 +74,7 @@ def legal_impl() -> dict:
         "produce_to_opposing_counsel": lambda documents, recipient, **_: {"produced": len(documents), "to": recipient},
         "export_documents": lambda destination, **_: {"exported_to": destination},
         "delete_document": lambda doc_id, **_: {"deleted": doc_id},
+        "reingest_documents": lambda matter_id="2024-CV-1187", **_: {"reprocessed": 214},
         "send_email": lambda to, **_: {"sent_to": to},
     }
 

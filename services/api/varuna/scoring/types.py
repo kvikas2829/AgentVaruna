@@ -28,6 +28,7 @@ class HistoryItem:
     band: str
     hit_ids: list[str]
     ts: object  # datetime
+    docs: tuple = ()  # document ids named by the call's arguments
 
 
 @dataclass

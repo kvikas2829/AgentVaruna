@@ -47,7 +47,7 @@ def score_event(event_type: str, payload: dict, *, charter: dict, tools: list[di
     patterns: list[dict] = []
     if event_type == "tool_call":
         s_hits, patterns = sequence.analyze(tool, args_hash(tool, args), kind, rules.amount_of(args),
-                                            rules.count_of(args), charter, history, now)
+                                            rules.count_of(args), charter, history, now, rules.doc_ids_of(args))
         hits += s_hits
 
     judge = judge or heuristic()
