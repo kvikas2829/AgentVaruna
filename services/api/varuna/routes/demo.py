@@ -3,10 +3,10 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 from varuna_demo import llm_agent
-from varuna_demo.meridian import company
+from varuna_demo.meridian import company, mcp_servers
 from varuna_demo.registry import SPECS
 from varuna_demo.runner import retry_pending, run_turn
 from varuna_sdk import VarunaClient
@@ -107,6 +107,18 @@ def chat(key: str, body: ChatIn):
         log.messages = list(log.messages) + new
         log.state = {**log.state, **new_state}
     return {"session_id": sid, "messages": new, "agent": _agent_info(key)}
+
+
+@router.post("/{key}/reset")
+def reset(key: str):
+    """Clear session: forgets every conversation with this agent (and the model's chat memory kept with it) and puts
+    the agent's stubbed systems back to their starting data. Varuna's own record of what happened is kept."""
+    _spec(key)
+    info = _agent_info(key)
+    mcp_servers.reset_agent(key)
+    with session_scope() as db:
+        cleared = db.execute(delete(ChatLog).where(ChatLog.agent_id == info["agent_id"])).rowcount
+    return {"ok": True, "conversations_cleared": cleared}
 
 
 @router.post("/{key}/retry")

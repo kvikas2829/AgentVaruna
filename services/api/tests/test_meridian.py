@@ -230,3 +230,18 @@ def test_model_agent_is_nudged_when_it_only_announces(fresh_db, model):
     model({"content": "I will open the request. Shall I go ahead?"})
     out, _, _ = _turn("can you request CRM access?")
     assert out[-1]["text"].endswith("Shall I go ahead?")                                        # a question is a real answer
+
+
+def test_clear_session_forgets_conversations_and_resets_only_that_agents_stubs(client):
+    from varuna_demo.meridian import security
+    r = client.post("/v1/demo/itadmin/chat", json={"message": _scenario("crm"), "as_user": "alex.rivera"}).json()
+    assert m._state["access"] != co.ACCESS                             # the scenario granted CRM access
+    security.isolate_host("WS-114")
+    out = client.post("/v1/demo/itadmin/reset").json()
+    assert out["ok"] and out["conversations_cleared"] == 1
+    assert client.get(f"/v1/demo/itadmin/chat/{r['session_id']}").json()["messages"] == []
+    assert m._state["access"] == co.ACCESS
+    assert "WS-114" in security._state["isolated"]                     # the SOC agent's world is untouched
+    client.post("/v1/demo/soc/reset")
+    assert not security._state["isolated"]
+    assert client.post("/v1/demo/nope/reset").status_code == 404

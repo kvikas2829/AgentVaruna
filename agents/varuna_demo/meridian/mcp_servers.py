@@ -52,10 +52,19 @@ def reset() -> None:
     """Puts every stub back to its starting data (tests call this)."""
     for m in (travel, legal, security):
         m.reset()
+    _reset_it()
+
+
+def _reset_it() -> None:
     _state.clear()
     _state.update(access=copy.deepcopy(co.ACCESS), groups=copy.deepcopy(co.GROUPS), access_requests={}, hardware_requests={},
                   tickets=copy.deepcopy(TICKETS), disabled=set(), sent=[])
     _ids.update(ar=itertools.count(5101), hw=itertools.count(7301), t=itertools.count(8900))
+
+
+def reset_agent(key: str) -> None:
+    """Puts back only the stubs one demo agent works on: its bookings, tags, isolations or access grants."""
+    {"travel": travel.reset, "legal": legal.reset, "soc": security.reset, "itadmin": _reset_it}[key]()
 
 
 reset()

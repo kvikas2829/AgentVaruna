@@ -52,6 +52,13 @@ export default function Demo({ agentKey }: { agentKey?: string }) {
   const resume = async () => { await api(`/v1/agents/${info.agent_id}/resume`, { body: {} }); toast("Agent resumed"); reloadAgents(); refreshAgents(); };
   const pickUser = (h: string) => { setAsUser(h); store(`as_${key}`, h); fresh(); };
   const fresh = () => { setSid(null); setMsgs([]); if (key) store(key, null); };
+  /** Clear session: the agent forgets every conversation and its stubbed systems go back to their starting data. */
+  const clearSession = async () => {
+    if (!key || busy) return;
+    setBusy(true);
+    try { await api(`/v1/demo/${key}/reset`, { body: {} }); fresh(); setText(""); toast(`${info?.name || "Agent"}: session cleared`); }
+    catch (e: any) { toast(e.message); } finally { setBusy(false); }
+  };
 
   // approvals for this session, to know when a held call can be retried
   const approvals: Record<number, any> = {};
@@ -69,7 +76,8 @@ export default function Demo({ agentKey }: { agentKey?: string }) {
         <div className="seg" role="tablist" aria-label="Demo agent">
           {agents.map((a) => <button key={a.key} role="tab" aria-pressed={a.key === key} onClick={() => go(`/demo/${a.key}`)}>{a.name}</button>)}
         </div>
-        <button className="btn" onClick={fresh}>New conversation</button>
+        <button className="btn" onClick={clearSession} disabled={busy || !key}
+          title="Forgets every conversation with this agent and resets its bookings, tags, isolations or access grants. Varuna's records are kept.">Clear session</button>
       </div>
       {info && (
         <p className="muted small" style={{ maxWidth: 760 }}>{info.description} {info.model

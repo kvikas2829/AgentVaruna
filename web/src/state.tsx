@@ -77,7 +77,7 @@ export function useData<T>(path: string | null, deps: unknown[] = []) {
   const [err, setErr] = useState<string>("");
   const [loading, setLoading] = useState(true);
   const reload = useCallback(() => {
-    if (!path) return Promise.resolve();
+    if (!path) { setData(null); return Promise.resolve(); }   // no path (e.g. no session yet): show nothing, not the last result
     return api<T>(path).then((d) => { setData(d); setErr(""); }).catch((e) => setErr(e.message)).finally(() => setLoading(false));
   }, [path]);
   // eslint-disable-next-line react-hooks/exhaustive-deps
